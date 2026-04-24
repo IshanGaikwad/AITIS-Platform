@@ -13,12 +13,20 @@ export default function LandingPage() {
           <span className="text-lg font-semibold">AI Test Intelligence</span>
         </div>
 
-        <Link
-          href="/studio"
-          className="rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          Open Studio
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            href="/studio"
+            className="rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Open Test Generator Studio
+          </Link>
+          <Link
+            href="/execution"
+            className="rounded-2xl border border-slate-950 px-5 py-2.5 text-sm font-medium text-slate-950 hover:bg-slate-100"
+          >
+            Test Execution Studio
+          </Link>
+        </div>
       </header>
 
       {/* Hero */}
@@ -43,7 +51,7 @@ export default function LandingPage() {
               href="/studio"
               className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800"
             >
-              Get Started
+              Open Test Generator
             </Link>
 
             <a
@@ -155,7 +163,7 @@ export default function LandingPage() {
             href="/studio"
             className="mt-8 inline-block rounded-2xl bg-white px-8 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
           >
-            Launch AI Test Intelligence
+            Generate Test Artifacts
           </Link>
         </div>
       </section>
