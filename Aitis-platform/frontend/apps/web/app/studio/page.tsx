@@ -503,40 +503,39 @@ export default function HomePage() {
             <Section
               title="Story Workspace"
               subtitle="Create, edit, save, and generate from backend-managed stories"
-              action={
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleNewStory}
-                    className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    New
-                  </button>
-
-                  <button
-                    onClick={handleSaveStory}
-                    disabled={saving}
-                    className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:bg-slate-400"
-                  >
-                    {saving ? "Saving..." : "Save"}
-                  </button>
-
-                  <button
-                    onClick={handleDeleteStory}
-                    disabled={!selectedStoryId || saving}
-                    className="rounded-2xl border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-
-                  <button
-                    onClick={() => setShowAcEditor((current) => !current)}
-                    className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    {showAcEditor ? "Hide AC Editor" : "Edit ACs"}
-                  </button>
-                </div>
-              }
             >
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  onClick={handleNewStory}
+                  className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  New
+                </button>
+
+                <button
+                  onClick={handleSaveStory}
+                  disabled={saving}
+                  className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:bg-slate-400"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+
+                <button
+                  onClick={handleDeleteStory}
+                  disabled={!selectedStoryId || saving}
+                  className="rounded-2xl border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                >
+                  Delete
+                </button>
+
+                <button
+                  onClick={() => setShowAcEditor((current) => !current)}
+                  className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  {showAcEditor ? "Hide AC Editor" : "Edit ACs"}
+                </button>
+              </div>
+
               <div className="space-y-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-slate-700">
