@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Section } from "@/components/ui/section";
-import { getApiBaseUrl, getStories } from "@/lib/api";
+import { getApiBaseUrl, getStories, runFullGeneration } from "@/lib/api";
 import type { SavedStory } from "@/lib/api";
 
 type AutomationFramework = "Playwright" | "Cypress" | "Selenium" | "API Test";
@@ -86,7 +86,9 @@ export default function TestExecutionStudio() {
     generatedCode: null,
   });
 
-  const [loading, setLoading] = useState(true);
+  const [editedCode, setEditedCode] = useState<string>("");
+
+  const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,34 +119,37 @@ export default function TestExecutionStudio() {
   }, []);
 
   function handleGenerateBDD() {
+    if (!config.selectedStoryId) return;
+
     setLoading(true);
     setError(null);
 
     try {
-      // Get template based on selected framework
-      const template = frameworkTemplates[config.framework];
+      const selectedStory = stories.find(s => s.id === config.selectedStoryId);
+      if (!selectedStory) {
+        throw new Error("Selected story not found");
+      }
 
-      // In a real implementation, you would:
-      // 1. Fetch the test cases from the selected story
-      // 2. Transform them into BDD format
-      // 3. Generate framework-specific code
+      // Generate for the selected framework
+      const storyToGenerate = { ...selectedStory, framework: config.framework };
 
-      const generatedCode = `${template}
+      runFullGeneration(storyToGenerate).then((result) => {
+        // Get the first automation (they all have the same framework now)
+        const automation = result.automation[0];
+        const generatedCode = automation ? automation.code : "No automation generated";
 
-// Generated from Test Intelligence Platform
-// Framework: ${config.framework}
-// BDD Enabled: ${config.bddEnabled}
-// Generated: ${new Date().toLocaleString()}`;
-
-      setConfig((prev) => ({
-        ...prev,
-        generatedCode,
-      }));
+        setConfig((prev) => ({
+          ...prev,
+          generatedCode,
+        }));
+        setEditedCode(generatedCode);
+        setLoading(false);
+      }).catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to generate BDD framework");
+        setLoading(false);
+      });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to generate BDD framework"
-      );
-    } finally {
+      setError(err instanceof Error ? err.message : "Failed to generate BDD framework");
       setLoading(false);
     }
   }
@@ -331,18 +336,21 @@ export default function TestExecutionStudio() {
             {config.generatedCode ? (
               <Section
                 title="Generated Framework Code"
-                subtitle="BDD framework code ready for integration"
+                subtitle="BDD framework code ready for integration - Edit in the IDE below"
               >
-                <div className="rounded-3xl bg-slate-950 p-5 text-sm text-slate-100">
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
-                    {config.generatedCode}
-                  </pre>
+                <div className="rounded-3xl bg-slate-950 p-5">
+                  <textarea
+                    value={editedCode}
+                    onChange={(e) => setEditedCode(e.target.value)}
+                    className="w-full h-96 bg-slate-900 text-slate-100 font-mono text-sm p-4 rounded-lg border border-slate-700 focus:border-slate-500 focus:outline-none"
+                    placeholder="Generated code will appear here..."
+                  />
                 </div>
 
                 <div className="mt-4 flex gap-2">
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(config.generatedCode || "");
+                      navigator.clipboard.writeText(editedCode);
                       alert("Code copied to clipboard!");
                     }}
                     className="flex-1 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -352,7 +360,7 @@ export default function TestExecutionStudio() {
                   <button
                     onClick={() => {
                       const element = document.createElement("a");
-                      const file = new Blob([config.generatedCode || ""], {
+                      const file = new Blob([editedCode], {
                         type: "text/plain",
                       });
                       element.href = URL.createObjectURL(file);
@@ -379,36 +387,44 @@ export default function TestExecutionStudio() {
             )}
 
             <Section
-              title="Execution Guide"
-              subtitle="Steps to execute the generated tests"
+              title="Framework Libraries & Dependencies"
+              subtitle="Required packages for the selected framework"
             >
               <div className="space-y-3 text-sm text-slate-700">
                 <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>1. Install Dependencies</strong>
+                  <strong>Core Framework:</strong>
                   <p className="mt-1 text-xs text-slate-600">
                     {config.framework === "Playwright"
-                      ? "npm install @playwright/test"
+                      ? "@playwright/test - End-to-end testing framework"
                       : config.framework === "Cypress"
-                      ? "npm install cypress"
+                      ? "cypress - Front-end testing framework"
                       : config.framework === "Selenium"
-                      ? "pip install selenium"
-                      : "pip install requests pytest"}
+                      ? "selenium - Web automation framework"
+                      : "pytest, requests - API testing framework"}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>2. Add Test File</strong>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Copy the generated code to your test suite
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>3. Run Tests</strong>
+                  <strong>BDD Support:</strong>
                   <p className="mt-1 text-xs text-slate-600">
                     {config.framework === "Playwright"
-                      ? "npx playwright test"
+                      ? "@cucumber/cucumber - BDD framework integration"
                       : config.framework === "Cypress"
-                      ? "npx cypress run"
-                      : "pytest"}
+                      ? "cypress-cucumber-preprocessor - BDD preprocessor"
+                      : config.framework === "Selenium"
+                      ? "behave - BDD framework for Python"
+                      : "pytest-bdd - BDD plugin for pytest"}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <strong>Installation Command:</strong>
+                  <p className="mt-1 text-xs text-slate-600 font-mono">
+                    {config.framework === "Playwright"
+                      ? "npm install @playwright/test @cucumber/cucumber"
+                      : config.framework === "Cypress"
+                      ? "npm install cypress cypress-cucumber-preprocessor"
+                      : config.framework === "Selenium"
+                      ? "pip install selenium behave"
+                      : "pip install pytest requests pytest-bdd"}
                   </p>
                 </div>
               </div>

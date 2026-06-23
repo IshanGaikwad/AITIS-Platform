@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/lib/auth";
 
 export default function LandingPage() {
+  const { user, isAuthenticated, login, logout } = useAuth();
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       {/* Header */}
@@ -13,19 +16,62 @@ export default function LandingPage() {
           <span className="text-lg font-semibold">AI Test Intelligence</span>
         </div>
 
-        <div className="flex gap-3">
-          <Link
-            href="/studio"
-            className="rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            Open Test Generator Studio
-          </Link>
-          <Link
-            href="/execution"
-            className="rounded-2xl border border-slate-950 px-5 py-2.5 text-sm font-medium text-slate-950 hover:bg-slate-100"
-          >
-            Test Execution Studio
-          </Link>
+        <div className="flex items-center gap-3">
+          {isAuthenticated ? (
+            <>
+              <div className="flex items-center gap-2">
+                {user?.picture && (
+                  <img
+                    src={user.picture}
+                    alt={user.name || user.email}
+                    className="w-8 h-8 rounded-full"
+                  />
+                )}
+                <span className="text-sm text-slate-700">
+                  {user?.name || user?.email}
+                </span>
+              </div>
+              <Link
+                href="/studio"
+                className="rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Open Test Generator Studio
+              </Link>
+              <Link
+                href="/execution"
+                className="rounded-2xl border border-slate-950 px-5 py-2.5 text-sm font-medium text-slate-950 hover:bg-slate-100"
+              >
+                Test Execution Studio
+              </Link>
+              <button
+                onClick={logout}
+                className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/studio"
+                className="rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Open Test Generator Studio
+              </Link>
+              <Link
+                href="/execution"
+                className="rounded-2xl border border-slate-950 px-5 py-2.5 text-sm font-medium text-slate-950 hover:bg-slate-100"
+              >
+                Test Execution Studio
+              </Link>
+              <button
+                onClick={login}
+                className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Login
+              </button>
+            </>
+          )}
         </div>
       </header>
 

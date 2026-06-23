@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AcceptanceCriteriaEditor } from "@/components/acceptance-criteria-editor";
 import { Badge } from "@/components/ui/badge";
 import { Section } from "@/components/ui/section";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { extractAcceptanceCriteriaCandidates } from "@/lib/ac-mapper";
 import {
   createStory,

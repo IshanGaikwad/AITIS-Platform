@@ -1,9 +1,15 @@
 import os
+import warnings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Suppress authlib deprecation warning
+warnings.filterwarnings("ignore", message="authlib.jose module is deprecated")
+
 from app.api.routes import router
 from app.db.database import Base, engine
+from app.models.user import User
+from app.models.story import Story
 
 app = FastAPI(
     title="AI Test Intelligence API",
@@ -14,6 +20,8 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3004",
+    "http://127.0.0.1:3004",
     "http://frontend:3000",  # Docker internal network
     "http://localhost:8000",
     "http://127.0.0.1:8000",
