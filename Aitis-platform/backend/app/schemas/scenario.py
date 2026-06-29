@@ -1,4 +1,6 @@
 
+"""Pydantic schema for Gherkin scenario generation."""
+
 from pydantic import BaseModel
 
 

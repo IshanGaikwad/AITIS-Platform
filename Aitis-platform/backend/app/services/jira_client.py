@@ -5,6 +5,28 @@ import httpx
 
 from app.core.config import settings
 
+# Module-level shared client for connection pooling
+_client: Optional[httpx.AsyncClient] = None
+
+
+async def get_http_client() -> httpx.AsyncClient:
+    """Return a shared httpx.AsyncClient with connection pooling."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _client
+
+
+async def close_http_client() -> None:
+    """Close the shared client — call on app shutdown."""
+    global _client
+    if _client and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
 
 class JiraClient:
     def __init__(self):
@@ -23,21 +45,20 @@ class JiraClient:
 
     async def get_projects(self) -> list[dict[str, Any]]:
         url = f"{self.base_url}/rest/api/3/project"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=self.headers)
-            response.raise_for_status()
-            return response.json()
+        client = await get_http_client()
+        response = await client.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
 
     async def get_issue(self, issue_key: str) -> dict[str, Any]:
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
         params = {
             "fields": "summary,description,issuetype,priority,labels,components,status"
         }
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            return response.json()
+        client = await get_http_client()
+        response = await client.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        return response.json()
 
     async def search_issues(
         self,
@@ -57,7 +78,7 @@ class JiraClient:
         if next_page_token:
             params["nextPageToken"] = next_page_token
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            return response.json()
+        client = await get_http_client()
+        response = await client.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        return response.json()

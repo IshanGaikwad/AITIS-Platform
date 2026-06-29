@@ -3,6 +3,8 @@
 type AcceptanceCriteriaEditorProps = {
   items: string[];
   onChange: (items: string[]) => void;
+  sourceText?: string;
+  onApply?: () => void;
 };
 
 export function AcceptanceCriteriaEditor({

@@ -1,16 +1,22 @@
-from fastapi import APIRouter
+"""Scenarios API — Convert test cases to Gherkin scenarios."""
 
-from app.schemas.testcase import TestCaseOut
+from fastapi import APIRouter, Depends
+
+from app.core.security import get_current_user
 from app.schemas.scenario import ScenarioOut
+from app.schemas.testcase import TestCaseOut
 from app.services.scenario_service import to_gherkin
 
 router = APIRouter()
 
 
 @router.post("/generate", response_model=ScenarioOut)
-def generate(payload: TestCaseOut) -> ScenarioOut:
+async def generate(
+    payload: TestCaseOut,
+    current_user=Depends(get_current_user),
+):
+    """Convert a test case into a Gherkin scenario."""
     gherkin_text = to_gherkin(payload)
-
     return ScenarioOut(
         id=payload.id.replace("TC", "SC"),
         title=payload.title,

@@ -2,14 +2,14 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from app.schemas.intent import IntentOut
-from app.schemas.story import StoryIn
+from app.schemas.story import StoryCreate
 
 
 def slugify(text: str) -> str:
     return re.sub(r"(^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", text.lower()))
 
 
-def build_base_id(story: StoryIn) -> str:
+def build_base_id(story: StoryCreate) -> str:
     return slugify(story.jiraId or story.title).upper()
 
 
@@ -79,7 +79,7 @@ def add_unique_test(container: List[Dict[str, Any]], test: Dict[str, Any], seen_
 
 
 def generate_direct_ac_tests(
-    story: StoryIn,
+    story: StoryCreate,
     intent: IntentOut,
     ac_id: str,
     ac_text: str,
@@ -296,7 +296,7 @@ def generate_direct_ac_tests(
 
 
 def generate_inferred_tests(
-    story: StoryIn,
+    story: StoryCreate,
     intent: IntentOut,
     base_id: str,
     counter: Dict[str, int],
@@ -407,7 +407,7 @@ def build_coverage_summary(tests: List[Dict[str, Any]], total_acs: int) -> Dict[
     }
 
 
-def generate_test_suite(story: StoryIn, intent: IntentOut) -> Dict[str, Any]:
+def generate_test_suite(story: StoryCreate, intent: IntentOut) -> Dict[str, Any]:
     base_id = build_base_id(story)
     counter: Dict[str, int] = {}
     tests: List[Dict[str, Any]] = []
@@ -470,5 +470,5 @@ def generate_test_suite(story: StoryIn, intent: IntentOut) -> Dict[str, Any]:
     }
 
 
-def generate_legacy_tests_only(story: StoryIn, intent: IntentOut) -> List[Dict[str, Any]]:
+def generate_legacy_tests_only(story: StoryCreate, intent: IntentOut) -> List[Dict[str, Any]]:
     return generate_test_suite(story, intent)["tests"]

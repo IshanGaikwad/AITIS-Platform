@@ -1,29 +1,14 @@
-from typing import List, Optional
+"""Legacy story schemas — deprecated, re-exported from requirement schemas.
 
-from pydantic import BaseModel, Field, ConfigDict
+The 'Story' concept is now 'Requirement'. These aliases exist for backward
+compatibility with the AI generation pipeline (test_service, intent_service, etc.).
+"""
 
+from app.schemas.requirement import (
+    RequirementCreate as StoryCreate,
+    RequirementCreate as StoryIn,
+    RequirementOut as StoryOut,
+    RequirementUpdate as StoryUpdate,
+)
 
-class StoryBase(BaseModel):
-    jiraId: Optional[str] = None
-    title: str
-    description: str
-    acceptanceCriteria: List[str]
-    framework: str = "Playwright"
-
-
-class StoryIn(StoryBase):
-    pass
-
-
-class StoryCreate(StoryBase):
-    pass
-
-
-class StoryUpdate(StoryBase):
-    pass
-
-
-class StoryOut(StoryBase):
-    id: int | None = None
-
-    model_config = ConfigDict(from_attributes=True)
+__all__ = ["StoryCreate", "StoryIn", "StoryOut", "StoryUpdate"]

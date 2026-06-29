@@ -1,437 +1,562 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Play,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Clock,
+  ChevronRight,
+  ChevronDown,
+  Save,
+  FileText,
+  Plus,
+  ArrowLeft,
+  SkipForward,
+  Ban,
+  Camera,
+  MessageSquare,
+} from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Section } from "@/components/ui/section";
-import { getApiBaseUrl, getStories, runFullGeneration } from "@/lib/api";
-import type { SavedStory } from "@/lib/api";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  getExecution,
+  recordStepResult,
+  completeExecution,
+  createExecution,
+  getCaseExecutions,
+  createCaseExecutions,
+} from "@/lib/api";
+import type { TestExecution, TestCaseExecution, StepExecution } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import Link from "next/link";
 
-type AutomationFramework = "Playwright" | "Cypress" | "Selenium" | "API Test";
+/* ── Status helpers ──────────────────────────────────────────────── */
 
-interface TestExecutionConfig {
-  selectedStoryId: number | null;
-  framework: AutomationFramework;
-  bddEnabled: boolean;
-  generatedCode: string | null;
-}
+const STEP_STATUSES = ["pending", "passed", "failed", "blocked", "skipped"] as const;
+type StepStatus = (typeof STEP_STATUSES)[number];
 
-const frameworkTemplates: Record<AutomationFramework, string> = {
-  Playwright: `import { test, expect } from '@playwright/test';
-
-describe('BDD Test Suite', () => {
-  let page;
-
-  test.beforeEach(async ({ browser }) => {
-    page = await browser.newPage();
-  });
-
-  // Feature: Test scenarios generated from acceptance criteria
-  
-  test('Given: Initial state, When: User action, Then: Expected outcome', async () => {
-    // Implement test steps
-  });
-});`,
-  Cypress: `describe('BDD Test Suite', () => {
-  beforeEach(() => {
-    // Setup before each test
-  });
-
-  // Feature: Test scenarios generated from acceptance criteria
-
-  it('Given: Initial state, When: User action, Then: Expected outcome', () => {
-    // Implement test steps
-  });
-});`,
-  Selenium: `import unittest
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-
-class TestBDDSuite(unittest.TestCase):
-    
-    def setUp(self):
-        self.driver = webdriver.Chrome()
-    
-    # Feature: Test scenarios generated from acceptance criteria
-    
-    def test_scenario(self):
-        '''Given: Initial state, When: User action, Then: Expected outcome'''
-        # Implement test steps
-        pass
-    
-    def tearDown(self):
-        self.driver.quit()`,
-  "API Test": `import requests
-import pytest
-
-class TestAPIBDDSuite:
-    
-    BASE_URL = "https://api.example.com"
-    
-    # Feature: API test scenarios generated from acceptance criteria
-    
-    def test_api_scenario(self):
-        '''Given: Initial state, When: User action, Then: Expected outcome'''
-        # Implement API test
-        pass
-`,
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Pending",
+  passed: "Passed",
+  failed: "Failed",
+  blocked: "Blocked",
+  skipped: "Skipped",
+  in_progress: "In Progress",
+  completed: "Completed",
 };
 
-export default function TestExecutionStudio() {
-  const [stories, setStories] = useState<SavedStory[]>([]);
-  const [config, setConfig] = useState<TestExecutionConfig>({
-    selectedStoryId: null,
-    framework: "Playwright",
-    bddEnabled: true,
-    generatedCode: null,
-  });
+const STATUS_TONE: Record<string, "green" | "rose" | "amber" | "slate" | "blue" | "purple"> = {
+  pending: "slate",
+  passed: "green",
+  failed: "rose",
+  blocked: "amber",
+  skipped: "slate",
+  in_progress: "blue",
+  completed: "purple",
+};
 
-  const [editedCode, setEditedCode] = useState<string>("");
+/* ── Main Page ───────────────────────────────────────────────────── */
 
-  const [loading, setLoading] = useState(false);
-  const [bootstrapping, setBootstrapping] = useState(true);
+export default function ManualExecutionPage() {
+  const searchParams = useSearchParams();
+  const executionIdParam = searchParams.get("executionId") ?? undefined;
+  const suiteIdParam = searchParams.get("suiteId") ?? undefined;
+
+  const [execution, setExecution] = useState<TestExecution | null>(null);
+  const [caseExecutions, setCaseExecutions] = useState<TestCaseExecution[]>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function bootstrap() {
-      setBootstrapping(true);
-      setError(null);
+  /* ── Load case executions ──────────────────────────────────────── */
 
-      try {
-        const savedStories = await getStories();
-        setStories(savedStories);
-        if (savedStories.length > 0) {
-          setConfig((prev) => ({
-            ...prev,
-            selectedStoryId: savedStories[0].id,
-          }));
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load test cases"
-        );
-      } finally {
-        setBootstrapping(false);
+  const loadCaseExecutions = useCallback(async (execId: string) => {
+    try {
+      const cases = await getCaseExecutions(execId);
+      setCaseExecutions(cases);
+      // Auto-select first case if none selected
+      if (cases.length > 0 && !selectedCaseId) {
+        setSelectedCaseId(cases[0].id);
       }
+    } catch (err) {
+      console.error("Failed to load case executions:", err);
     }
+  }, [selectedCaseId]);
 
-    bootstrap();
-  }, []);
+  /* ── Initial load ──────────────────────────────────────────────── */
 
-  function handleGenerateBDD() {
-    if (!config.selectedStoryId) return;
+  useEffect(() => {
+    if (executionIdParam) {
+      loadExistingExecution(executionIdParam);
+    } else if (suiteIdParam) {
+      startNewExecution();
+    } else {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [executionIdParam, suiteIdParam]);
 
+  async function loadExistingExecution(id: string) {
     setLoading(true);
     setError(null);
-
     try {
-      const selectedStory = stories.find(s => s.id === config.selectedStoryId);
-      if (!selectedStory) {
-        throw new Error("Selected story not found");
-      }
-
-      // Generate for the selected framework
-      const storyToGenerate = { ...selectedStory, framework: config.framework };
-
-      runFullGeneration(storyToGenerate).then((result) => {
-        // Get the first automation (they all have the same framework now)
-        const automation = result.automation[0];
-        const generatedCode = automation ? automation.code : "No automation generated";
-
-        setConfig((prev) => ({
-          ...prev,
-          generatedCode,
-        }));
-        setEditedCode(generatedCode);
-        setLoading(false);
-      }).catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to generate BDD framework");
-        setLoading(false);
-      });
+      const data = await getExecution(id);
+      setExecution(data);
+      await loadCaseExecutions(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate BDD framework");
+      console.error("Failed to load execution:", err);
+      setError("Failed to load execution session.");
+    } finally {
       setLoading(false);
     }
   }
 
+  async function startNewExecution() {
+    setLoading(true);
+    setError(null);
+    try {
+      const newExec = await createExecution({
+        test_suite_id: suiteIdParam!,
+        execution_type: "manual",
+      });
+      setExecution(newExec);
+      // Create case + step execution records
+      const cases = await createCaseExecutions(newExec.id);
+      setCaseExecutions(cases);
+      if (cases.length > 0) {
+        setSelectedCaseId(cases[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to start execution:", err);
+      setError("Failed to start execution session.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ── Step update handler ───────────────────────────────────────── */
+
+  async function handleStepUpdate(stepExecutionId: string, updates: Partial<StepExecution>) {
+    setSaving(true);
+    try {
+      const updated = await recordStepResult(stepExecutionId, updates);
+      // Update local state
+      setCaseExecutions(prev =>
+        prev.map(ce => {
+          if (!ce.step_executions) return ce;
+          return {
+            ...ce,
+            step_executions: ce.step_executions.map(se =>
+              se.id === stepExecutionId ? { ...se, ...updated } : se
+            ),
+          };
+        })
+      );
+    } catch (err) {
+      console.error("Failed to update step:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /* ── Complete session ──────────────────────────────────────────── */
+
+  async function handleComplete() {
+    if (!execution) return;
+    setSaving(true);
+    try {
+      const completed = await completeExecution(execution.id);
+      setExecution(completed);
+    } catch (err) {
+      console.error("Failed to complete execution:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /* ── Derived state ─────────────────────────────────────────────── */
+
+  const selectedCase = caseExecutions.find(ce => ce.id === selectedCaseId) ?? null;
+  const steps = selectedCase?.step_executions ?? [];
+  const sortedSteps = [...steps].sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0));
+
+  const isCompleted = execution?.status === "completed";
+
+  /* ── Render ────────────────────────────────────────────────────── */
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center space-y-4">
+          <AlertCircle className="h-12 w-12 text-rose-400 mx-auto" />
+          <p className="text-slate-600">{error}</p>
+          <Button variant="outline" asChild>
+            <Link href="/test-suites">Back to Test Suites</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Badge tone="blue">AI Test Intelligence</Badge>
-              <Badge tone="purple">Test Execution</Badge>
-              <Badge tone="amber">BDD Framework</Badge>
-            </div>
-            <h1 className="text-4xl font-bold tracking-tight text-slate-950">
-              Test Execution Studio
-            </h1>
-            <p className="mt-3 max-w-3xl text-base text-slate-600">
-              Pull generated test cases, create BDD frameworks, and prepare automation
-              code for your preferred testing framework. Execute tests with full traceability
-              from Jira stories.
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              API base URL: <span className="font-medium text-slate-700">{getApiBaseUrl()}</span>
-            </p>
-
-            <div className="mt-6">
-              <Link
-                href="/"
-                className="text-sm font-medium text-slate-600 hover:text-slate-900"
-              >
-                ← Back to Home
+    <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* Left Sidebar: Test Case List */}
+      <div className="w-80 border-r bg-white flex flex-col">
+        <div className="p-4 border-b flex items-center justify-between bg-slate-50">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <Link href="/test-suites">
+                <ArrowLeft className="h-4 w-4" />
               </Link>
-            </div>
+            </Button>
+            <h2 className="font-semibold text-sm">Execution Session</h2>
           </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Execution Workflow
-            </h2>
-            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              {[
-                "1. Select Test Case",
-                "2. Choose Framework",
-                "3. Enable BDD",
-                "4. Generate Code",
-                "5. Review Artifacts",
-                "6. Export & Execute",
-              ].map((step) => (
-                <div key={step} className="rounded-2xl bg-slate-50 p-3 text-slate-700">
-                  {step}
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800">
-              <strong>Status:</strong> {bootstrapping ? "Loading test cases..." : "Ready"}
-            </div>
-          </div>
+          <Badge tone={STATUS_TONE[execution?.status ?? "pending"] ?? "slate"} className="text-[10px]">
+            {STATUS_LABEL[execution?.status ?? "pending"] ?? execution?.status}
+          </Badge>
         </div>
 
-        {error ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-          <div className="space-y-6">
-            <Section
-              title="Test Selection"
-              subtitle="Select test cases from Test Generator"
-            >
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Generated Test Cases
-                  </label>
-                  <select
-                    value={config.selectedStoryId ?? ""}
-                    onChange={(event) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        selectedStoryId: Number(event.target.value),
-                      }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 outline-none transition focus:border-slate-400"
-                  >
-                    <option value="">Select a test case</option>
-                    {stories.map((story) => (
-                      <option key={story.id} value={story.id}>
-                        {story.title}
-                      </option>
-                    ))}
-                  </select>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {caseExecutions.length === 0 ? (
+            <div className="text-center py-10 px-4">
+              <FileText className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-xs text-slate-500">No test cases in this session.</p>
+            </div>
+          ) : (
+            caseExecutions.map(ce => (
+              <div
+                key={ce.id}
+                onClick={() => setSelectedCaseId(ce.id)}
+                className={cn(
+                  "p-3 rounded-lg cursor-pointer transition-all border text-sm",
+                  selectedCaseId === ce.id
+                    ? "bg-blue-50 border-blue-200 text-blue-700 ring-1 ring-blue-200"
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                )}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium truncate">
+                    {ce.test_case_title ?? ce.test_case_id.slice(0, 8)}
+                  </span>
+                  <Badge tone={STATUS_TONE[ce.status] ?? "slate"} className="text-[10px] px-1 py-0">
+                    {STATUS_LABEL[ce.status] ?? ce.status}
+                  </Badge>
                 </div>
-
-                {config.selectedStoryId && (
-                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
-                    <strong>Selected:</strong> {stories.find((s) => s.id === config.selectedStoryId)?.title}
+                {/* Mini progress bar */}
+                {ce.step_executions && ce.step_executions.length > 0 && (
+                  <div className="flex gap-0.5 mt-1.5">
+                    {ce.step_executions.map(se => (
+                      <div
+                        key={se.id}
+                        className={cn(
+                          "h-1.5 flex-1 rounded-full",
+                          se.status === "passed" && "bg-green-400",
+                          se.status === "failed" && "bg-rose-400",
+                          se.status === "blocked" && "bg-amber-400",
+                          se.status === "skipped" && "bg-slate-300",
+                          se.status === "pending" && "bg-slate-100"
+                        )}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
-            </Section>
+            ))
+          )}
+        </div>
 
-            <Section
-              title="Framework Configuration"
-              subtitle="Choose automation framework and options"
-            >
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Automation Framework
-                  </label>
-                  <select
-                    value={config.framework}
-                    onChange={(event) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        framework: event.target.value as AutomationFramework,
-                      }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 outline-none transition focus:border-slate-400"
-                  >
-                    <option>Playwright</option>
-                    <option>Cypress</option>
-                    <option>Selenium</option>
-                    <option>API Test</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="bdd-enabled"
-                    checked={config.bddEnabled}
-                    onChange={(event) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        bddEnabled: event.target.checked,
-                      }))
-                    }
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  <label
-                    htmlFor="bdd-enabled"
-                    className="text-sm font-medium text-slate-700"
-                  >
-                    Enable BDD (Given-When-Then)
-                  </label>
-                </div>
-
-                <button
-                  onClick={handleGenerateBDD}
-                  disabled={loading || !config.selectedStoryId}
-                  className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  {loading ? "Generating..." : "Generate BDD Framework"}
-                </button>
-              </div>
-            </Section>
-
-            <Section
-              title="Framework Info"
-              subtitle="Details about selected framework"
-            >
-              <div className="space-y-3 text-sm text-slate-700">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>Framework:</strong> {config.framework}
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>BDD Format:</strong> {config.bddEnabled ? "Enabled" : "Disabled"}
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>Test Cases:</strong> {stories.length}
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>Status:</strong> {config.generatedCode ? "Generated" : "Pending"}
-                </div>
-              </div>
-            </Section>
-          </div>
-
-          <div className="space-y-6">
-            {config.generatedCode ? (
-              <Section
-                title="Generated Framework Code"
-                subtitle="BDD framework code ready for integration - Edit in the IDE below"
-              >
-                <div className="rounded-3xl bg-slate-950 p-5">
-                  <textarea
-                    value={editedCode}
-                    onChange={(e) => setEditedCode(e.target.value)}
-                    className="w-full h-96 bg-slate-900 text-slate-100 font-mono text-sm p-4 rounded-lg border border-slate-700 focus:border-slate-500 focus:outline-none"
-                    placeholder="Generated code will appear here..."
-                  />
-                </div>
-
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(editedCode);
-                      alert("Code copied to clipboard!");
-                    }}
-                    className="flex-1 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Copy Code
-                  </button>
-                  <button
-                    onClick={() => {
-                      const element = document.createElement("a");
-                      const file = new Blob([editedCode], {
-                        type: "text/plain",
-                      });
-                      element.href = URL.createObjectURL(file);
-                      element.download = `test-suite.${config.framework === "Playwright" ? "ts" : config.framework === "Cypress" ? "js" : "py"}`;
-                      document.body.appendChild(element);
-                      element.click();
-                      document.body.removeChild(element);
-                    }}
-                    className="flex-1 rounded-2xl bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                  >
-                    Download
-                  </button>
-                </div>
-              </Section>
-            ) : (
-              <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm text-center">
-                <div className="text-slate-500">
-                  <p className="font-medium">No framework generated yet</p>
-                  <p className="mt-2 text-sm">
-                    Select a test case and click "Generate BDD Framework" to create automation code.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <Section
-              title="Framework Libraries & Dependencies"
-              subtitle="Required packages for the selected framework"
-            >
-              <div className="space-y-3 text-sm text-slate-700">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>Core Framework:</strong>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {config.framework === "Playwright"
-                      ? "@playwright/test - End-to-end testing framework"
-                      : config.framework === "Cypress"
-                      ? "cypress - Front-end testing framework"
-                      : config.framework === "Selenium"
-                      ? "selenium - Web automation framework"
-                      : "pytest, requests - API testing framework"}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>BDD Support:</strong>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {config.framework === "Playwright"
-                      ? "@cucumber/cucumber - BDD framework integration"
-                      : config.framework === "Cypress"
-                      ? "cypress-cucumber-preprocessor - BDD preprocessor"
-                      : config.framework === "Selenium"
-                      ? "behave - BDD framework for Python"
-                      : "pytest-bdd - BDD plugin for pytest"}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <strong>Installation Command:</strong>
-                  <p className="mt-1 text-xs text-slate-600 font-mono">
-                    {config.framework === "Playwright"
-                      ? "npm install @playwright/test @cucumber/cucumber"
-                      : config.framework === "Cypress"
-                      ? "npm install cypress cypress-cucumber-preprocessor"
-                      : config.framework === "Selenium"
-                      ? "pip install selenium behave"
-                      : "pip install pytest requests pytest-bdd"}
-                  </p>
-                </div>
-              </div>
-            </Section>
-          </div>
+        <div className="p-4 border-t bg-slate-50">
+          <Button
+            className="w-full"
+            onClick={handleComplete}
+            disabled={isCompleted || saving}
+          >
+            {saving ? "Saving..." : isCompleted ? "Session Completed" : "Complete Session"}
+          </Button>
         </div>
       </div>
-    </main>
+
+      {/* Main Content: Step Execution */}
+      <div className="flex-1 overflow-y-auto p-8">
+        {!selectedCase ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-400">
+            <Play className="h-12 w-12 mb-4 opacity-20" />
+            <p>Select a test case from the sidebar to begin execution</p>
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">
+                  {selectedCase.test_case_title ?? "Test Case"}
+                </h1>
+                <p className="text-slate-500">
+                  Record actual results and evidence for each step.
+                </p>
+              </div>
+              <Badge tone={STATUS_TONE[selectedCase.status] ?? "slate"}>
+                {STATUS_LABEL[selectedCase.status] ?? selectedCase.status}
+              </Badge>
+            </div>
+
+            {/* Steps */}
+            <Card>
+              <CardHeader className="border-b bg-slate-50/50">
+                <CardTitle className="text-lg">Test Steps</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {sortedSteps.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400">
+                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No steps defined for this test case.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {sortedSteps.map((se, idx) => (
+                      <StepRow
+                        key={se.id}
+                        stepExecution={se}
+                        stepNumber={se.step_order ?? idx + 1}
+                        disabled={isCompleted}
+                        onUpdate={(updates) => handleStepUpdate(se.id, updates)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── StepRow Component ───────────────────────────────────────────── */
+
+function StepRow({
+  stepExecution,
+  stepNumber,
+  disabled,
+  onUpdate,
+}: {
+  stepExecution: StepExecution;
+  stepNumber: number;
+  disabled: boolean;
+  onUpdate: (updates: Partial<StepExecution>) => void;
+}) {
+  const [actualResult, setActualResult] = useState(stepExecution.actual_result ?? "");
+  const [comment, setComment] = useState(stepExecution.comment ?? "");
+  const [screenshotUrl, setScreenshotUrl] = useState(stepExecution.screenshot_url ?? "");
+
+  // Sync local state when stepExecution changes from server
+  useEffect(() => {
+    setActualResult(stepExecution.actual_result ?? "");
+    setComment(stepExecution.comment ?? "");
+    setScreenshotUrl(stepExecution.screenshot_url ?? "");
+  }, [stepExecution.actual_result, stepExecution.comment, stepExecution.screenshot_url]);
+
+  const statusIcon = {
+    pending: <Clock className="h-3.5 w-3.5 text-slate-400" />,
+    passed: <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />,
+    failed: <XCircle className="h-3.5 w-3.5 text-rose-500" />,
+    blocked: <Ban className="h-3.5 w-3.5 text-amber-500" />,
+    skipped: <SkipForward className="h-3.5 w-3.5 text-slate-400" />,
+  };
+
+  return (
+    <div className="p-4 flex gap-6 hover:bg-slate-50/50 transition-colors">
+      {/* Step number + connector */}
+      <div className="flex flex-col items-center gap-1">
+        <div
+          className={cn(
+            "h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold border-2",
+            stepExecution.status === "passed" && "bg-green-100 border-green-300 text-green-700",
+            stepExecution.status === "failed" && "bg-rose-100 border-rose-300 text-rose-700",
+            stepExecution.status === "blocked" && "bg-amber-100 border-amber-300 text-amber-700",
+            stepExecution.status === "skipped" && "bg-slate-100 border-slate-300 text-slate-500",
+            stepExecution.status === "pending" && "bg-slate-50 border-slate-200 text-slate-400"
+          )}
+        >
+          {stepNumber}
+        </div>
+        <div className="w-px flex-1 bg-slate-200" />
+      </div>
+
+      {/* Step content */}
+      <div className="flex-1 space-y-4 pb-2">
+        {/* Action & Expected Result */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">Action</Label>
+            <p className="text-sm text-slate-700 bg-slate-100 p-2 rounded border">
+              {stepExecution.step_action ?? "—"}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">Expected Result</Label>
+            <p className="text-sm text-slate-700 bg-slate-100 p-2 rounded border">
+              {stepExecution.step_expected_result ?? "—"}
+            </p>
+          </div>
+        </div>
+
+        {/* Actual Result */}
+        <div className="space-y-1">
+          <Label className="text-xs text-slate-500">Actual Result</Label>
+          <Textarea
+            placeholder="What actually happened?"
+            className="text-sm min-h-[60px]"
+            value={actualResult}
+            onChange={(e) => setActualResult(e.target.value)}
+            onBlur={() => {
+              if (actualResult !== (stepExecution.actual_result ?? "")) {
+                onUpdate({ actual_result: actualResult || undefined });
+              }
+            }}
+            disabled={disabled}
+          />
+        </div>
+
+        {/* Status buttons + evidence */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-slate-500 mr-1">Status:</Label>
+            <div className="flex gap-1">
+              <StatusButton
+                label="Pass"
+                active={stepExecution.status === "passed"}
+                onClick={() => onUpdate({ status: "passed" })}
+                color="green"
+                icon={<CheckCircle2 className="h-3 w-3" />}
+                disabled={disabled}
+              />
+              <StatusButton
+                label="Fail"
+                active={stepExecution.status === "failed"}
+                onClick={() => onUpdate({ status: "failed" })}
+                color="rose"
+                icon={<XCircle className="h-3 w-3" />}
+                disabled={disabled}
+              />
+              <StatusButton
+                label="Block"
+                active={stepExecution.status === "blocked"}
+                onClick={() => onUpdate({ status: "blocked" })}
+                color="amber"
+                icon={<Ban className="h-3 w-3" />}
+                disabled={disabled}
+              />
+              <StatusButton
+                label="Skip"
+                active={stepExecution.status === "skipped"}
+                onClick={() => onUpdate({ status: "skipped" })}
+                color="slate"
+                icon={<SkipForward className="h-3 w-3" />}
+                disabled={disabled}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Camera className="h-3.5 w-3.5 text-slate-400" />
+            <Input
+              placeholder="Screenshot URL"
+              className="h-8 text-xs w-48"
+              value={screenshotUrl}
+              onChange={(e) => setScreenshotUrl(e.target.value)}
+              onBlur={() => {
+                if (screenshotUrl !== (stepExecution.screenshot_url ?? "")) {
+                  onUpdate({ screenshot_url: screenshotUrl || undefined });
+                }
+              }}
+              disabled={disabled}
+            />
+          </div>
+        </div>
+
+        {/* Comment */}
+        <div className="space-y-1">
+          <Label className="text-xs text-slate-500 flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" /> Comment
+          </Label>
+          <Input
+            placeholder="Optional comment or note"
+            className="h-8 text-xs"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onBlur={() => {
+              if (comment !== (stepExecution.comment ?? "")) {
+                onUpdate({ comment: comment || undefined });
+              }
+            }}
+            disabled={disabled}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── StatusButton Component ──────────────────────────────────────── */
+
+function StatusButton({
+  label,
+  active,
+  onClick,
+  color,
+  icon,
+  disabled,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  color: "green" | "rose" | "amber" | "slate";
+  icon: React.ReactNode;
+  disabled?: boolean;
+}) {
+  const colorClasses = {
+    green: active
+      ? "bg-green-100 text-green-700 border-green-300"
+      : "hover:bg-green-50 hover:text-green-600 border-slate-200 text-slate-500",
+    rose: active
+      ? "bg-rose-100 text-rose-700 border-rose-300"
+      : "hover:bg-rose-50 hover:text-rose-600 border-slate-200 text-slate-500",
+    amber: active
+      ? "bg-amber-100 text-amber-700 border-amber-300"
+      : "hover:bg-amber-50 hover:text-amber-600 border-slate-200 text-slate-500",
+    slate: active
+      ? "bg-slate-100 text-slate-700 border-slate-300"
+      : "hover:bg-slate-50 hover:text-slate-600 border-slate-200 text-slate-500",
+  };
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className={cn("h-7 px-2 text-[10px] gap-1 transition-colors", colorClasses[color])}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {icon}
+      {label}
+    </Button>
   );
 }

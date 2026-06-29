@@ -1,6 +1,40 @@
 version: '3.8'
 
 services:
+  # ── Infrastructure ──────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aitis-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: aitis
+      POSTGRES_USER: aitis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aitis_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aitis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: aitis-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Application ────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -9,14 +43,26 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - JIRA_BASE_URL=${JIRA_BASE_URL}
-      - JIRA_EMAIL=${JIRA_EMAIL}
-      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
-      - DATABASE_URL=sqlite:///./app.db
-      - ENV=production
-    volumes:
-      - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      - DATABASE_URL=postgresql+asyncpg://aitis:${POSTGRES_PASSWORD:-aitis_dev_password}@postgres:5432/aitis
+      - REDIS_URL=redis://redis:6379/0
+      - JIRA_BASE_URL=${JIRA_BASE_URL:-}
+      - JIRA_EMAIL=${JIRA_EMAIL:-}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - APP_ENV=production
+      - OAUTH2_PROVIDER=${OAUTH2_PROVIDER:-auth0}
+      - OAUTH2_CLIENT_ID=${OAUTH2_CLIENT_ID:-}
+      - OAUTH2_CLIENT_SECRET=${OAUTH2_CLIENT_SECRET:-}
+      - OAUTH2_DOMAIN=${OAUTH2_DOMAIN:-}
+      - OAUTH2_TENANT_ID=${OAUTH2_TENANT_ID:-}
+      - OAUTH2_AUDIENCE=${OAUTH2_AUDIENCE:-}
+      - OAUTH2_SCOPES=${OAUTH2_SCOPES:-}
+      - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-http://localhost:3000/auth/callback}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -27,10 +73,57 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://backend:8000/api
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
     depends_on:
       - backend
     restart: unless-stopped
 
+  # ── Execution Worker ───────────────────────────────────────────
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aitis-worker
+    command: python -m app.services.execution_worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://aitis:${POSTGRES_PASSWORD:-aitis_dev_password}@postgres:5432/aitis
+      - REDIS_URL=redis://redis:6379/0
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - EXECUTION_CONTAINER_IMAGE=aitis-playwright-runner:latest
+      - EXECUTION_CPU_LIMIT=1
+      - EXECUTION_MEMORY_LIMIT=1g
+      - EXECUTION_TIMEOUT_DEFAULT=300
+      - EXECUTION_MAX_CONCURRENT=4
+      - EXECUTION_WORKER_CONCURRENCY=2
+      - EXECUTION_NETWORK_MODE=bridge
+      - APP_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-}
+    volumes:
+      # Mount Docker socket so worker can spawn sibling containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Shared workspace for test artifacts
+      - execution_workspace:/tmp/aitis-execution
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Playwright Execution Image Builder ─────────────────────────
+  # Builds the isolated Playwright runner image used by the worker.
+  # Run once: docker compose build playwright-runner
+  playwright-runner:
+    build:
+      context: ./backend/execution-image
+      dockerfile: Dockerfile
+    image: aitis-playwright-runner:latest
+    container_name: aitis-playwright-runner-build
+    # This service only builds the image — it doesn't stay running
+    profiles:
+      - build
+
 volumes:
-  db_data:
+  postgres_data:
+  redis_data:
+  execution_workspace:

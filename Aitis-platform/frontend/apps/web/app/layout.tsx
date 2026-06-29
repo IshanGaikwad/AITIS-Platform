@@ -1,10 +1,12 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { AuthProvider } from "@/lib/auth";
+import { AppShell } from "@/components/app-shell";
+import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "AI Test Intelligence Studio",
-  description: "Scaffolded frontend for Jira-to-test intelligence",
+  title: "AITIS — AI Test Intelligence System",
+  description: "AI-powered test intelligence platform for Jira-to-test automation",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -12,7 +14,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <AuthProvider>
-          {children}
+          <AppShell>{children}</AppShell>
+          <Toaster />
         </AuthProvider>
       </body>
     </html>

@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
+from app.core.security import get_current_user
+from app.models.user import User
 from app.services.atlassian_client import AtlassianClient
 
 router = APIRouter()
@@ -16,7 +18,10 @@ def get_atlassian_token(authorization: str | None = Header(None)) -> str:
 
 
 @router.get("/resources")
-async def get_accessible_resources(token: str = Depends(get_atlassian_token)):
+async def get_accessible_resources(
+    token: str = Depends(get_atlassian_token),
+    current_user: User = Depends(get_current_user),
+):
     client = AtlassianClient(token)
     return await client.get_accessible_resources()
 
@@ -26,6 +31,7 @@ async def get_jira_issue(
     issue_key: str,
     cloud_id: str = Query(..., description="Atlassian Jira cloud ID from accessible resources"),
     token: str = Depends(get_atlassian_token),
+    current_user: User = Depends(get_current_user),
 ):
     client = AtlassianClient(token)
     return await client.get_jira_issue(cloud_id, issue_key)
@@ -37,6 +43,7 @@ async def search_jira_issues(
     jql: str = Query(..., description="JQL query string"),
     max_results: int = Query(25, description="Maximum number of results"),
     token: str = Depends(get_atlassian_token),
+    current_user: User = Depends(get_current_user),
 ):
     client = AtlassianClient(token)
     return await client.search_jira(cloud_id, jql, max_results=max_results)
@@ -48,6 +55,7 @@ async def search_confluence_content(
     cql: str = Query(..., description="Confluence CQL query string"),
     limit: int = Query(25, description="Maximum number of results"),
     token: str = Depends(get_atlassian_token),
+    current_user: User = Depends(get_current_user),
 ):
     client = AtlassianClient(token)
     return await client.search_confluence_content(site_id, cql, limit=limit)
