@@ -9,7 +9,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.invitation import Invitation, InvitationStatus
-from app.models.tenant import OrganizationMembership, WorkspaceMembership, Role
+from app.models.tenant import OrganizationMembership, ProjectMembership, Role
 from app.schemas.invitation import InvitationCreate
 
 
@@ -33,7 +33,7 @@ async def create_invitation(
         status=InvitationStatus.pending.value,
         invited_by=inviter_id,
         organization_id=data.organization_id,
-        workspace_id=data.workspace_id,
+        project_id=data.project_id,
         role=data.role,
         expires_at=expires_at,
     )
@@ -49,7 +49,7 @@ async def create_bulk_invitations(
     emails: list[str],
     role: str,
     organization_id: uuid.UUID,
-    workspace_id: Optional[uuid.UUID],
+    project_id: Optional[uuid.UUID],
     expires_in_days: int = 7,
 ) -> list[Invitation]:
     """Create multiple invitations at once."""
@@ -64,7 +64,7 @@ async def create_bulk_invitations(
             status=InvitationStatus.pending.value,
             invited_by=inviter_id,
             organization_id=organization_id,
-            workspace_id=workspace_id,
+            project_id=project_id,
             role=role,
             expires_at=expires_at,
         )
@@ -82,7 +82,7 @@ async def accept_invitation(
     token: str,
     user_id: uuid.UUID,
 ) -> Invitation:
-    """Accept an invitation — creates org/workspace memberships."""
+    """Accept an invitation — creates org/project memberships."""
     result = await db.execute(
         select(Invitation).where(
             and_(
@@ -120,20 +120,20 @@ async def accept_invitation(
         )
         db.add(org_membership)
 
-    # Create workspace membership if workspace was specified
-    if invitation.workspace_id:
+    # Create project membership if project was specified
+    if invitation.project_id:
         existing_ws = await db.execute(
-            select(WorkspaceMembership).where(
+            select(ProjectMembership).where(
                 and_(
-                    WorkspaceMembership.user_id == user_id,
-                    WorkspaceMembership.workspace_id == invitation.workspace_id,
+                    ProjectMembership.user_id == user_id,
+                    ProjectMembership.project_id == invitation.project_id,
                 )
             )
         )
         if existing_ws.scalars().first() is None:
-            ws_membership = WorkspaceMembership(
+            ws_membership = ProjectMembership(
                 user_id=user_id,
-                workspace_id=invitation.workspace_id,
+                project_id=invitation.project_id,
                 role=invitation.role,
             )
             db.add(ws_membership)

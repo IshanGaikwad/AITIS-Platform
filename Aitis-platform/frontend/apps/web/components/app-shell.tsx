@@ -22,7 +22,7 @@ import {
   Menu,
   Search,
 } from "lucide-react";
-import { OrgWorkspaceSwitcher } from "@/components/org-workspace-switcher";
+import { OrgProjectSwitcher } from "@/components/org-project-switcher";
 import { Breadcrumb, buildBreadcrumbsFromPath } from "@/components/breadcrumb";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 import { MobileNav } from "@/components/mobile-nav";
@@ -89,17 +89,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        {/* Org/Workspace Switcher (sidebar) */}
+        {/* Org/Project Switcher (sidebar) */}
         {!collapsed && (
           <div className="border-b border-slate-100 px-3 py-2">
-            <OrgWorkspaceSwitcher />
+            <OrgProjectSwitcher />
           </div>
         )}
         {collapsed && (
           <div className="flex justify-center border-b border-slate-100 py-2">
             <div
               className="flex h-6 w-6 items-center justify-center rounded bg-slate-200 text-[10px] font-bold text-slate-600"
-              title={user?.organization_id ? "Switch workspace" : undefined}
+              title={user?.organization_id ? "Switch project" : undefined}
             >
               {user?.organization_id ? "O" : "?"}
             </div>
@@ -235,7 +235,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* Mobile org switcher (compact) */}
           <div className="lg:hidden">
-            <OrgWorkspaceSwitcher className="!py-0 !px-1" />
+            <OrgProjectSwitcher className="!py-0 !px-1" />
           </div>
         </header>
 

@@ -1,21 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getProjects, getProjectStats } from "@/lib/api";
-import type { Project, ProjectStats } from "@/lib/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   FileText,
-  TestTube,
-  Play,
-  Bug,
-  TrendingUp,
-  ArrowRight,
-  Code2,
   Zap,
   Shield,
   BarChart3,
@@ -26,13 +17,12 @@ function LandingPage() {
 
   async function handleTryDemo() {
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-      const res = await fetch(`${apiBase}/auth/demo`, { method: "POST" });
+      const res = await fetch("/api/auth/demo", { method: "POST" });
       if (!res.ok) throw new Error("Demo unavailable");
       const data = await res.json();
       localStorage.setItem("aitis_access_token", data.access_token);
       if (data.refresh_token) localStorage.setItem("aitis_refresh_token", data.refresh_token);
-      window.location.href = "/dashboard";
+      window.location.href = "/home";
     } catch {
       alert("Demo is temporarily unavailable. Please try again later.");
     }
@@ -49,12 +39,6 @@ function LandingPage() {
           <span className="text-lg font-semibold">AITIS</span>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            href="/studio"
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Try Studio
-          </Link>
           <Link
             href="/login"
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
@@ -90,12 +74,6 @@ function LandingPage() {
             automation-ready code — all with full traceability.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
-            <Link
-              href="/studio"
-              className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800 inline-flex items-center gap-2"
-            >
-              Open Test Generator <ArrowRight className="h-4 w-4" />
-            </Link>
             <button
               onClick={handleTryDemo}
               className="rounded-lg border border-slate-900 px-6 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
@@ -212,125 +190,16 @@ function LandingPage() {
   );
 }
 
-function DashboardPage() {
-  const { user } = useAuth();
-  const [stats, setStats] = useState<ProjectStats | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function RootPage() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
-    async function fetchStats() {
-      try {
-        const projects: Project[] = await getProjects(user?.workspace_id || "");
-        if (projects.length > 0) {
-          const s = await getProjectStats(projects[0].id);
-          setStats(s);
-        }
-      } catch {
-        // Stats unavailable — leave as null
-      } finally {
-        setLoading(false);
-      }
+    if (!isLoading && isAuthenticated) {
+      router.replace("/home");
     }
-    if (user?.workspace_id) {
-      fetchStats();
-    } else {
-      setLoading(false);
-    }
-  }, [user?.workspace_id]);
+  }, [isLoading, isAuthenticated, router]);
 
-  const statCards = [
-    { label: "Requirements", value: loading ? "…" : stats?.total_requirements ?? "—", icon: FileText, href: "/requirements", color: "text-blue-600" },
-    { label: "Test Suites", value: loading ? "…" : stats?.total_test_cases ?? "—", icon: TestTube, href: "/test-suites", color: "text-purple-600" },
-    { label: "Executions", value: "—", icon: Play, href: "/execution", color: "text-green-600" },
-    { label: "Defects", value: "—", icon: Bug, href: "/defects", color: "text-red-600" },
-  ];
-
-  return (
-    <div className="space-y-8">
-      {/* Welcome */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          Welcome back{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
-        </h1>
-        <p className="text-slate-500 mt-1">Here&apos;s an overview of your testing workspace.</p>
-      </div>
-
-      {/* Stats grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((stat) => (
-          <Link key={stat.label} href={stat.href}>
-            <Card className="hover:shadow-md transition-shadow cursor-pointer">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-500">{stat.label}</CardTitle>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stat.value}</div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
-      {/* Quick actions */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-            <CardDescription>Jump into your workflow</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              { label: "Import from Jira", href: "/studio", icon: Code2, description: "Fetch a Jira story and generate test artifacts" },
-              { label: "View Test Suites", href: "/test-suites", icon: TestTube, description: "Browse and manage your test suites" },
-              { label: "Run Execution", href: "/execution", icon: Play, description: "Execute tests and view results" },
-            ].map((action) => (
-              <Link
-                key={action.label}
-                href={action.href}
-                className="flex items-center gap-4 rounded-lg border border-slate-200 p-4 hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">
-                  <action.icon className="h-5 w-5 text-slate-700" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-slate-900">{action.label}</p>
-                  <p className="text-xs text-slate-500">{action.description}</p>
-                </div>
-                <ArrowRight className="h-4 w-4 text-slate-400" />
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Your latest actions</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <TrendingUp className="h-10 w-10 text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">No recent activity yet.</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Start by importing a Jira story or creating a requirement.
-              </p>
-              <Link href="/studio">
-                <Button variant="outline" size="sm" className="mt-4">
-                  Go to Studio
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-export default function HomePage() {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) return null;
-  return isAuthenticated ? <DashboardPage /> : <LandingPage />;
+  if (isLoading || isAuthenticated) return null;
+  return <LandingPage />;
 }

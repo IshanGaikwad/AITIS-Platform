@@ -9,16 +9,16 @@ from app.models.tenant import (  # noqa: F401
     Role,
     Organization,
     OrganizationMembership,
-    Workspace,
-    WorkspaceMembership,
+    Project,
+    ProjectMembership,
 )
 from app.models.invitation import (  # noqa: F401
     InvitationStatus,
     Invitation,
 )
 
-# Project & requirements
-from app.models.project import Project  # noqa: F401
+# Workspace & requirements
+from app.models.workspace import Workspace  # noqa: F401
 from app.models.application import ApplicationType, Application  # noqa: F401
 from app.models.environment import EnvironmentType, Environment  # noqa: F401
 from app.models.requirement import (  # noqa: F401
@@ -86,10 +86,12 @@ from app.models.system import (  # noqa: F401
     IntegrationStatus,
     AuditAction,
     NotificationType,
+    SSOProviderType,
     Integration,
     SecretReference,
     AuditEvent,
     Notification,
+    SSOProvider,
 )
 
 # Legacy (deprecated â€” re-exports Requirement as Story)
@@ -99,11 +101,11 @@ __all__ = [
     # Base
     "Base", "UUIDMixin", "TimestampMixin", "TenantMixin", "AIGovernanceMixin",
     # Identity
-    "User", "Role", "Organization", "OrganizationMembership", "Workspace", "WorkspaceMembership",
+    "User", "Role", "Organization", "OrganizationMembership", "Project", "ProjectMembership",
     # Invitation
     "Invitation", "InvitationStatus",
-    # Project
-    "Project", "Application", "ApplicationType", "Environment", "EnvironmentType",
+    # Workspace
+    "Workspace", "Application", "ApplicationType", "Environment", "EnvironmentType",
     # Requirements
     "Requirement", "AcceptanceCriterion", "RequirementType", "RequirementPriority", "RequirementStatus", "ACCategory",
     # Test
@@ -118,8 +120,8 @@ __all__ = [
     "ExecutionArtifact", "Defect", "HealingProposal",
     "ArtifactType", "DefectSeverity", "DefectStatus", "HealingStatus",
     # System
-    "Integration", "SecretReference", "AuditEvent", "Notification",
-    "IntegrationType", "IntegrationStatus", "AuditAction", "NotificationType",
+    "Integration", "SecretReference", "AuditEvent", "Notification", "SSOProvider",
+    "IntegrationType", "IntegrationStatus", "AuditAction", "NotificationType", "SSOProviderType",
     # Legacy
     "Story",
 ]

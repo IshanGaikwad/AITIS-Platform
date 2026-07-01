@@ -270,7 +270,7 @@ async def save_healing_proposal(
 ):
     """Save a healing proposal to the database for review."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     # Verify script exists
     script = await db.get(AutomationScript, script_id)
@@ -286,7 +286,7 @@ async def save_healing_proposal(
         failure_category=failure_category,
         status="pending",
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(proposal)
     await db.commit()
@@ -308,14 +308,14 @@ async def list_healing_proposals(
 ):
     """List healing proposals for a script."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     result = await db.execute(
         select(HealingProposalModel)
         .where(
             HealingProposalModel.script_id == script_id,
             HealingProposalModel.organization_id == org_id,
-            HealingProposalModel.workspace_id == ws_id,
+            HealingProposalModel.project_id == ws_id,
         )
         .order_by(HealingProposalModel.created_at.desc())
     )

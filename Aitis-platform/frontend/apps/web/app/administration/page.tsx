@@ -22,17 +22,19 @@ import {
   Plug,
   ScrollText,
   Bot,
+  KeyRound,
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { getOrganizations, getWorkspaces, createWorkspace, getAuditEvents } from "@/lib/api";
-import type { Workspace, Organization, AuditEvent } from "@/lib/types";
+import { getOrganizations, getProjects, createProject, getAuditEvents } from "@/lib/api";
+import type { Project, Organization, AuditEvent } from "@/lib/types";
 import { useToast } from "@/components/ui/use-toast";
+import { SsoProvidersTab } from "@/components/admin/sso-providers";
 
 /* ── Static data ── */
 const ROLES = [
-  { name: "Organization Owner", description: "Full control over org settings, billing, and all workspaces.", color: "rose" as const },
-  { name: "Administrator", description: "Manage members, workspaces, and integrations.", color: "rose" as const },
+  { name: "Organization Owner", description: "Full control over org settings, billing, and all projects.", color: "rose" as const },
+  { name: "Administrator", description: "Manage members, projects, and integrations.", color: "rose" as const },
   { name: "QA Lead", description: "Create and manage test suites, runs, defects, and reports.", color: "amber" as const },
   { name: "Automation Engineer", description: "Write, version, and execute automation scripts.", color: "blue" as const },
   { name: "Manual Tester", description: "Execute manual test cases and log defects.", color: "blue" as const },
@@ -48,15 +50,15 @@ const INTEGRATIONS = [
   { name: "Microsoft Teams", description: "Send alerts to Teams channels.", icon: "T" },
 ];
 
-/* ── Create Workspace Dialog ── */
-interface CreateWorkspaceDialogProps {
+/* ── Create Project Dialog ── */
+interface CreateProjectDialogProps {
   open: boolean;
   onClose: () => void;
   orgId: string;
   onCreated: () => void;
 }
 
-function CreateWorkspaceDialog({ open, onClose, orgId, onCreated }: CreateWorkspaceDialogProps) {
+function CreateProjectDialog({ open, onClose, orgId, onCreated }: CreateProjectDialogProps) {
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -68,14 +70,14 @@ function CreateWorkspaceDialog({ open, onClose, orgId, onCreated }: CreateWorksp
     if (!name.trim() || !orgId) return;
     setSaving(true);
     try {
-      await createWorkspace(orgId, { name: name.trim(), slug, description: "" });
-      toast({ title: "Workspace created." });
+      await createProject(orgId, { name: name.trim(), slug, description: "" });
+      toast({ title: "Project created." });
       onCreated();
       onClose();
       setName("");
     } catch (err: unknown) {
       toast({
-        title: "Failed to create workspace",
+        title: "Failed to create project",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "destructive",
       });
@@ -88,12 +90,12 @@ function CreateWorkspaceDialog({ open, onClose, orgId, onCreated }: CreateWorksp
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Workspace</DialogTitle>
+          <DialogTitle>Create Project</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
           <div>
             <label className="text-xs font-medium text-slate-600 block mb-1">Name *</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Workspace" required />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Project" required />
           </div>
           <div>
             <label className="text-xs font-medium text-slate-600 block mb-1">Slug (auto-generated)</label>
@@ -117,11 +119,11 @@ export default function AdministrationPage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState("workspaces");
+  const [activeTab, setActiveTab] = useState("projects");
   const [orgs, setOrgs] = useState<Organization[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const [loadingWorkspaces, setLoadingWorkspaces] = useState(true);
+  const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -144,25 +146,25 @@ export default function AdministrationPage() {
     }
   }, []);
 
-  async function loadWorkspaces() {
-    setLoadingWorkspaces(true);
+  async function loadProjects() {
+    setLoadingProjects(true);
     try {
       const orgList = await getOrganizations();
       setOrgs(orgList);
       if (orgList.length > 0) {
-        const wsList = await getWorkspaces(orgList[0].id);
-        setWorkspaces(wsList);
+        const wsList = await getProjects(orgList[0].id);
+        setProjects(wsList);
       }
     } catch {
       // show empty
     } finally {
-      setLoadingWorkspaces(false);
+      setLoadingProjects(false);
     }
   }
 
   useEffect(() => {
     if (!user) return;
-    loadWorkspaces();
+    loadProjects();
   }, [user]);
 
   useEffect(() => {
@@ -187,14 +189,14 @@ export default function AdministrationPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Administration</h1>
           <p className="text-slate-500 mt-1">
-            Manage workspaces, members, roles, integrations, and platform settings.
+            Manage projects, members, roles, integrations, and platform settings.
           </p>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="flex-wrap h-auto gap-1">
-            <TabsTrigger value="workspaces" className="flex items-center gap-1.5">
-              <Building2 className="h-3.5 w-3.5" /> Workspaces
+            <TabsTrigger value="projects" className="flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5" /> Projects
             </TabsTrigger>
             <TabsTrigger value="members" className="flex items-center gap-1.5">
               <Users className="h-3.5 w-3.5" /> Members
@@ -205,6 +207,9 @@ export default function AdministrationPage() {
             <TabsTrigger value="integrations" className="flex items-center gap-1.5">
               <Plug className="h-3.5 w-3.5" /> Integrations
             </TabsTrigger>
+            <TabsTrigger value="sso" className="flex items-center gap-1.5">
+              <KeyRound className="h-3.5 w-3.5" /> SSO
+            </TabsTrigger>
             <TabsTrigger value="audit-log" className="flex items-center gap-1.5">
               <ScrollText className="h-3.5 w-3.5" /> Audit Log
             </TabsTrigger>
@@ -213,28 +218,28 @@ export default function AdministrationPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Workspaces */}
-          <TabsContent value="workspaces" className="mt-4 space-y-4">
+          {/* Projects */}
+          <TabsContent value="projects" className="mt-4 space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-500">
-                {loadingWorkspaces ? "Loading..." : `${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""}`}
+                {loadingProjects ? "Loading..." : `${projects.length} project${projects.length !== 1 ? "s" : ""}`}
               </p>
               <Button size="sm" onClick={() => setCreateDialogOpen(true)} disabled={!primaryOrgId}>
-                <Plus className="h-4 w-4 mr-2" /> Create Workspace
+                <Plus className="h-4 w-4 mr-2" /> Create Project
               </Button>
             </div>
-            {loadingWorkspaces ? (
+            {loadingProjects ? (
               <div className="flex items-center justify-center h-32">
                 <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
               </div>
-            ) : workspaces.length === 0 ? (
+            ) : projects.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center">
                   <Building2 className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                  <p className="text-sm text-slate-500">No workspaces found.</p>
+                  <p className="text-sm text-slate-500">No projects found.</p>
                   {primaryOrgId && (
                     <Button size="sm" className="mt-3" onClick={() => setCreateDialogOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" /> Create Workspace
+                      <Plus className="h-4 w-4 mr-2" /> Create Project
                     </Button>
                   )}
                 </CardContent>
@@ -243,7 +248,7 @@ export default function AdministrationPage() {
               <Card>
                 <CardContent className="p-0">
                   <div className="divide-y divide-slate-100">
-                    {workspaces.map((ws) => (
+                    {projects.map((ws) => (
                       <div key={ws.id} className="flex items-center gap-4 px-6 py-4">
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 shrink-0">
                           <Building2 className="h-4 w-4 text-slate-600" />
@@ -259,11 +264,11 @@ export default function AdministrationPage() {
                 </CardContent>
               </Card>
             )}
-            <CreateWorkspaceDialog
+            <CreateProjectDialog
               open={createDialogOpen}
               onClose={() => setCreateDialogOpen(false)}
               orgId={primaryOrgId}
-              onCreated={loadWorkspaces}
+              onCreated={loadProjects}
             />
           </TabsContent>
 
@@ -325,6 +330,11 @@ export default function AdministrationPage() {
                 </CardContent>
               </Card>
             ))}
+          </TabsContent>
+
+          {/* SSO */}
+          <TabsContent value="sso" className="mt-4">
+            <SsoProvidersTab />
           </TabsContent>
 
           {/* Audit Log */}

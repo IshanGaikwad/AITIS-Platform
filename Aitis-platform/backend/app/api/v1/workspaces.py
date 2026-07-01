@@ -1,42 +1,39 @@
-"""Workspaces API — CRUD for Workspace + membership management."""
+"""Workspaces API — CRUD for Workspace entities."""
 
 import uuid
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import get_current_user, require_organization_access, require_workspace_access
+from app.core.security import claim_uuid, enforce_tenant_claims, get_current_user, require_project_access
 from app.db.database import get_db
-from app.models.tenant import Organization, Role, Workspace, WorkspaceMembership
-from app.schemas.tenant import (
-    WorkspaceCreate,
-    WorkspaceMembershipCreate,
-    WorkspaceMembershipOut,
-    WorkspaceOut,
-    WorkspaceUpdate,
-)
+from app.models.workspace import Workspace
+from app.models.requirement import Requirement
+from app.models.test import TestCase, TestSuite
+from app.models.tenant import Project
+from app.schemas.workspace import WorkspaceCreate, WorkspaceOut, WorkspaceUpdate
 
 router = APIRouter()
 
 
 @router.get("", response_model=List[WorkspaceOut])
 async def list_workspaces(
-    organization_id: uuid.UUID | None = None,
+    project_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List workspaces the current user has access to."""
-    user_id = current_user.get("user_id")
-    query = (
-        select(Workspace)
-        .join(WorkspaceMembership)
-        .where(WorkspaceMembership.user_id == user_id)
-    )
-    if organization_id:
-        await require_organization_access(db, current_user, organization_id)
-        query = query.where(Workspace.organization_id == organization_id)
+    """List workspaces in the current project."""
+    query = select(Workspace)
+    ws_id = project_id or current_user.get("project_id")
+    if ws_id:
+        ws_id = uuid.UUID(str(ws_id))
+        await require_project_access(db, current_user, ws_id)
+        query = query.where(Workspace.project_id == ws_id)
+    org_id = current_user.get("organization_id")
+    if org_id:
+        query = query.where(Workspace.organization_id == org_id)
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -48,11 +45,11 @@ async def get_workspace(
     current_user=Depends(get_current_user),
 ):
     result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
-    ws = result.scalars().first()
-    if not ws:
+    workspace = result.scalars().first()
+    if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    await require_workspace_access(db, current_user, workspace_id)
-    return ws
+    enforce_tenant_claims(workspace.organization_id, workspace.project_id, current_user)
+    return workspace
 
 
 @router.post("", response_model=WorkspaceOut, status_code=status.HTTP_201_CREATED)
@@ -61,35 +58,32 @@ async def create_workspace(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Create a workspace within an organization. Requires org_owner or administrator."""
-    await require_organization_access(db, current_user, payload.organization_id, ("org_owner", "administrator"))
-    # Verify org exists
-    org_result = await db.execute(
-        select(Organization).where(Organization.id == payload.organization_id)
-    )
-    if not org_result.scalars().first():
-        raise HTTPException(status_code=404, detail="Organization not found")
+    """Create a new workspace. Requires administrator or QA lead role."""
+    await require_project_access(db, current_user, payload.project_id, ("administrator", "qa_lead"))
+    org_id = claim_uuid(current_user, "organization_id", "org_id")
+    if org_id is None:
+        ws_result = await db.execute(select(Project).where(Project.id == payload.project_id))
+        project = ws_result.scalars().first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        org_id = project.organization_id
+    if payload.organization_id and org_id and payload.organization_id != org_id:
+        raise HTTPException(status_code=403, detail="Tenant access denied")
+    if not payload.organization_id:
+        payload.organization_id = org_id
 
-    ws = Workspace(
+    workspace = Workspace(
         name=payload.name,
-        slug=payload.slug,
-        organization_id=payload.organization_id,
+        key=payload.key,
         description=payload.description,
         settings=payload.settings or {},
+        project_id=payload.project_id,
+        organization_id=payload.organization_id,
     )
-    db.add(ws)
-    await db.flush()
-
-    # Creator becomes workspace admin
-    membership = WorkspaceMembership(
-        user_id=current_user.get("user_id"),
-        workspace_id=ws.id,
-        role=Role.administrator,
-    )
-    db.add(membership)
+    db.add(workspace)
     await db.commit()
-    await db.refresh(ws)
-    return ws
+    await db.refresh(workspace)
+    return workspace
 
 
 @router.put("/{workspace_id}", response_model=WorkspaceOut)
@@ -99,80 +93,62 @@ async def update_workspace(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    await require_workspace_access(db, current_user, workspace_id, ("org_owner", "administrator"))
     result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
-    ws = result.scalars().first()
-    if not ws:
+    workspace = result.scalars().first()
+    if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    await require_project_access(db, current_user, workspace.project_id, ("administrator", "qa_lead"))
 
     for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(ws, field, value)
+        setattr(workspace, field, value)
 
     await db.commit()
-    await db.refresh(ws)
-    return ws
+    await db.refresh(workspace)
+    return workspace
 
 
-@router.post("/{workspace_id}/members", response_model=WorkspaceMembershipOut,
-             status_code=status.HTTP_201_CREATED)
-async def add_workspace_member(
-    workspace_id: uuid.UUID,
-    payload: WorkspaceMembershipCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Add a member to the workspace."""
-    await require_workspace_access(db, current_user, workspace_id, ("org_owner", "administrator"))
-    result = await db.execute(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.user_id == payload.user_id,
-            WorkspaceMembership.workspace_id == workspace_id,
-        )
-    )
-    if result.scalars().first():
-        raise HTTPException(status_code=409, detail="User is already a member")
-
-    membership = WorkspaceMembership(
-        user_id=payload.user_id,
-        workspace_id=workspace_id,
-        role=Role(payload.role),
-    )
-    db.add(membership)
-    await db.commit()
-    await db.refresh(membership)
-    return membership
-
-
-@router.get("/{workspace_id}/members", response_model=List[WorkspaceMembershipOut])
-async def list_workspace_members(
+@router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workspace(
     workspace_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    await require_workspace_access(db, current_user, workspace_id)
-    result = await db.execute(
-        select(WorkspaceMembership)
-        .where(WorkspaceMembership.workspace_id == workspace_id)
-    )
-    return result.scalars().all()
+    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+    workspace = result.scalars().first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await require_project_access(db, current_user, workspace.project_id, ("administrator", "org_owner"))
+    await db.delete(workspace)
+    await db.commit()
 
 
-@router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_workspace_member(
+@router.get("/{workspace_id}/stats")
+async def get_workspace_stats(
     workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    await require_workspace_access(db, current_user, workspace_id, ("org_owner", "administrator"))
-    result = await db.execute(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.user_id == user_id,
-            WorkspaceMembership.workspace_id == workspace_id,
-        )
+    """Return aggregate counts for a workspace's dashboard."""
+    # Verify workspace exists
+    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+    workspace = result.scalars().first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    enforce_tenant_claims(workspace.organization_id, workspace.project_id, current_user)
+
+    req_count = await db.execute(
+        select(func.count()).select_from(Requirement).where(Requirement.workspace_id == workspace_id)
     )
-    membership = result.scalars().first()
-    if not membership:
-        raise HTTPException(status_code=404, detail="Membership not found")
-    await db.delete(membership)
-    await db.commit()
+    # TestCase has no direct workspace_id — it belongs to a workspace via its TestSuite.
+    tc_count = await db.execute(
+        select(func.count())
+        .select_from(TestCase)
+        .join(TestSuite, TestCase.test_suite_id == TestSuite.id)
+        .where(TestSuite.workspace_id == workspace_id)
+    )
+
+    return {
+        "total_requirements": req_count.scalar() or 0,
+        "total_test_cases": tc_count.scalar() or 0,
+        "team_members": 0,  # TODO: implement team membership
+    }

@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Application, Project, ApplicationType
+from app.models import Application, Workspace, ApplicationType
 
 
 class ApplicationService:
@@ -15,8 +15,8 @@ class ApplicationService:
     async def create_application(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
         project_id: UUID,
+        workspace_id: UUID,
         name: str,
         application_type: ApplicationType,
         description: Optional[str] = None,
@@ -26,8 +26,8 @@ class ApplicationService:
         """Create a new application."""
         app = Application(
             organization_id=organization_id,
-            workspace_id=workspace_id,
             project_id=project_id,
+            workspace_id=workspace_id,
             name=name,
             application_type=application_type,
             description=description,
@@ -43,7 +43,7 @@ class ApplicationService:
     async def get_application(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         application_id: UUID,
     ) -> Optional[Application]:
         """Get application by ID with tenant scoping."""
@@ -52,27 +52,27 @@ class ApplicationService:
                 and_(
                     Application.id == application_id,
                     Application.organization_id == organization_id,
-                    Application.workspace_id == workspace_id,
+                    Application.project_id == project_id,
                 )
             )
         )
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def list_project_applications(
+    async def list_workspace_applications(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
         project_id: UUID,
+        workspace_id: UUID,
         skip: int = 0,
         limit: int = 50,
     ) -> tuple[list[Application], int]:
-        """List all applications in a project with pagination."""
+        """List all applications in a workspace with pagination."""
         stmt = select(Application).where(
             and_(
                 Application.organization_id == organization_id,
-                Application.workspace_id == workspace_id,
                 Application.project_id == project_id,
+                Application.workspace_id == workspace_id,
             )
         )
         
@@ -87,7 +87,7 @@ class ApplicationService:
     async def update_application(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         application_id: UUID,
         name: Optional[str] = None,
         application_type: Optional[ApplicationType] = None,
@@ -97,7 +97,7 @@ class ApplicationService:
     ) -> Optional[Application]:
         """Update application fields."""
         app = await ApplicationService.get_application(
-            db, organization_id, workspace_id, application_id
+            db, organization_id, project_id, application_id
         )
         if not app:
             return None
@@ -121,12 +121,12 @@ class ApplicationService:
     async def delete_application(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         application_id: UUID,
     ) -> bool:
         """Delete an application (soft delete via archive or hard delete)."""
         app = await ApplicationService.get_application(
-            db, organization_id, workspace_id, application_id
+            db, organization_id, project_id, application_id
         )
         if not app:
             return False

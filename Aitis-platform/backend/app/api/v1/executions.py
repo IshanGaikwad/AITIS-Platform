@@ -10,7 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user, require_role
 from app.db.database import get_db
-from app.models.test import TestCase, TestStep
+from app.models.environment import Environment
+from app.models.test import TestCase, TestStep, TestSuite
 from app.schemas.testcase import (
     TestExecutionCreate,
     TestExecutionOut,
@@ -72,7 +73,7 @@ async def _enrich_case_executions(db: AsyncSession, case_execs) -> List[dict]:
             "stack_trace": ce.stack_trace,
             "artifacts": ce.artifacts,
             "organization_id": ce.organization_id,
-            "workspace_id": ce.workspace_id,
+            "project_id": ce.project_id,
             "created_at": ce.created_at,
             "updated_at": ce.updated_at,
             "test_case_title": tc_map.get(ce.test_case_id),
@@ -89,7 +90,7 @@ async def _enrich_case_executions(db: AsyncSession, case_execs) -> List[dict]:
                 "screenshot_url": se.screenshot_url,
                 "duration_seconds": se.duration_seconds,
                 "organization_id": se.organization_id,
-                "workspace_id": se.workspace_id,
+                "project_id": se.project_id,
                 "created_at": se.created_at,
                 "updated_at": se.updated_at,
                 **step_map.get(se.step_id, {}),
@@ -104,15 +105,81 @@ async def create_execution(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Start a new manual execution session."""
+    """Start an execution session.
+
+    For `execution_type == "automated"`, this resolves `environment_id` to the
+    configured Environment's `base_url` (the System Under Test), resolves the suite's
+    test cases to their linked automation scripts, runs them against that target, and
+    completes the run. Manual runs return the open session as before.
+    """
     if not payload.organization_id:
         payload.organization_id = current_user.get("organization_id")
-    if not payload.workspace_id:
-        payload.workspace_id = current_user.get("workspace_id")
-    
-    return await manual_test_service.create_execution(
+    if not payload.project_id:
+        payload.project_id = current_user.get("project_id")
+
+    execution = await manual_test_service.create_execution(
         db, payload, executed_by=current_user.get("id")
     )
+
+    if payload.execution_type == "automated":
+        base_url = None
+        if payload.environment_id:
+            env = await db.get(Environment, payload.environment_id)
+            base_url = env.base_url if env else None
+            execution.summary = {
+                "environment_id": str(payload.environment_id),
+                "target_url": base_url,
+            }
+            await db.commit()
+            await db.refresh(execution)
+
+        await manual_test_service.run_automated_execution(db, execution, base_url=base_url)
+        completed = await manual_test_service.complete_execution(db, execution.id)
+        return completed or execution
+
+    return execution
+
+
+@router.get("", response_model=List[TestExecutionOut])
+async def list_all_executions(
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    execution_type: Optional[str] = Query(None, description="Filter by manual | automated"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """List execution sessions for the current tenant (most recent first).
+
+    Surfaces all runs — manual and automated — across every suite, enriched
+    with the owning suite's name for display on the Runs page.
+    """
+    executions = await manual_test_service.list_all_executions(
+        db,
+        organization_id=current_user.get("organization_id"),
+        project_id=current_user.get("project_id"),
+        status=status_filter,
+        execution_type=execution_type,
+        skip=skip,
+        limit=limit,
+    )
+
+    # Batch-load suite names for display
+    suite_ids = {e.test_suite_id for e in executions}
+    suite_map: Dict[uuid.UUID, str] = {}
+    if suite_ids:
+        result = await db.execute(
+            select(TestSuite.id, TestSuite.name).where(TestSuite.id.in_(suite_ids))
+        )
+        for row in result.all():
+            suite_map[row[0]] = row[1]
+
+    enriched: List[dict] = []
+    for e in executions:
+        data = TestExecutionOut.model_validate(e).model_dump()
+        data["test_suite_name"] = suite_map.get(e.test_suite_id)
+        enriched.append(data)
+    return enriched
 
 @router.get("/{execution_id}", response_model=TestExecutionOut)
 async def get_execution(
@@ -187,7 +254,7 @@ async def record_step_result(
         "screenshot_url": result.screenshot_url,
         "duration_seconds": result.duration_seconds,
         "organization_id": result.organization_id,
-        "workspace_id": result.workspace_id,
+        "project_id": result.project_id,
         "created_at": result.created_at,
         "updated_at": result.updated_at,
     }

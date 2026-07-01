@@ -34,7 +34,7 @@ async def invite_user(
     current_user: dict = Depends(get_current_user),
     _role=Depends(require_role(Role.org_owner, Role.administrator)),
 ):
-    """Create an invitation to join an organization (and optionally a workspace)."""
+    """Create an invitation to join an organization (and optionally a project)."""
     await require_organization_access(db, current_user, data.organization_id, (Role.org_owner, Role.administrator))
     inviter_id = claim_uuid(current_user, "user_id", "sub")
     if not inviter_id:
@@ -69,7 +69,7 @@ async def bulk_invite_users(
         emails=data.emails,
         role=data.role,
         organization_id=data.organization_id,
-        workspace_id=data.workspace_id,
+        project_id=data.project_id,
         expires_in_days=data.expires_in_days,
     )
     return invitations
@@ -81,7 +81,7 @@ async def accept_invite(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Accept an invitation using the token. Creates org/workspace memberships."""
+    """Accept an invitation using the token. Creates org/project memberships."""
     user_id = claim_uuid(current_user, "user_id", "sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user claim")

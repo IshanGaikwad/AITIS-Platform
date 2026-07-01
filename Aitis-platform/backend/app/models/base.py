@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -20,7 +20,7 @@ class Base(DeclarativeBase):
 class UUIDMixin:
     """UUID primary key mixin."""
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
 
@@ -35,12 +35,12 @@ class TimestampMixin:
 
 
 class TenantMixin:
-    """Multi-tenancy mixin â€” every row is scoped to an organization + workspace."""
+    """Multi-tenancy mixin â€” every row is scoped to an organization + project."""
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        Uuid(as_uuid=True), nullable=False, index=True
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False, index=True
     )
 
 
@@ -58,7 +58,7 @@ class AIGovernanceMixin:
         String, nullable=True, default="pending"
     )  # pending | approved | rejected | needs_revision
     ai_reviewer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
+        Uuid(as_uuid=True), nullable=True
     )
     ai_approval_rejection_reason: Mapped[Optional[str]] = mapped_column(
         String, nullable=True

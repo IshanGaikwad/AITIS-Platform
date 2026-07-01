@@ -15,8 +15,8 @@ class EnvironmentService:
     async def create_environment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
         project_id: UUID,
+        workspace_id: UUID,
         application_id: UUID,
         name: str,
         environment_type: EnvironmentType,
@@ -29,8 +29,8 @@ class EnvironmentService:
         """Create a new environment."""
         env = Environment(
             organization_id=organization_id,
-            workspace_id=workspace_id,
             project_id=project_id,
+            workspace_id=workspace_id,
             application_id=application_id,
             name=name,
             environment_type=environment_type,
@@ -49,7 +49,7 @@ class EnvironmentService:
     async def get_environment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         environment_id: UUID,
     ) -> Optional[Environment]:
         """Get environment by ID with tenant scoping."""
@@ -58,17 +58,42 @@ class EnvironmentService:
                 and_(
                     Environment.id == environment_id,
                     Environment.organization_id == organization_id,
-                    Environment.workspace_id == workspace_id,
+                    Environment.project_id == project_id,
                 )
             )
         )
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def list_workspace_environments(
+        db: AsyncSession,
+        organization_id: UUID,
+        project_id: UUID,
+        workspace_id: UUID,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[Environment], int]:
+        """List all environments across every application in a workspace."""
+        stmt = select(Environment).where(
+            and_(
+                Environment.organization_id == organization_id,
+                Environment.project_id == project_id,
+                Environment.workspace_id == workspace_id,
+            )
+        )
+
+        total_result = await db.execute(stmt)
+        total = len(total_result.all())
+
+        stmt = stmt.order_by(Environment.created_at.desc()).offset(skip).limit(limit)
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    @staticmethod
     async def list_application_environments(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         application_id: UUID,
         skip: int = 0,
         limit: int = 50,
@@ -77,7 +102,7 @@ class EnvironmentService:
         stmt = select(Environment).where(
             and_(
                 Environment.organization_id == organization_id,
-                Environment.workspace_id == workspace_id,
+                Environment.project_id == project_id,
                 Environment.application_id == application_id,
             )
         )
@@ -90,20 +115,20 @@ class EnvironmentService:
         return result.scalars().all(), total
 
     @staticmethod
-    async def list_project_environments(
+    async def list_workspace_environments(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
         project_id: UUID,
+        workspace_id: UUID,
         skip: int = 0,
         limit: int = 50,
     ) -> tuple[list[Environment], int]:
-        """List all environments in a project with pagination."""
+        """List all environments in a workspace with pagination."""
         stmt = select(Environment).where(
             and_(
                 Environment.organization_id == organization_id,
-                Environment.workspace_id == workspace_id,
                 Environment.project_id == project_id,
+                Environment.workspace_id == workspace_id,
             )
         )
         
@@ -118,7 +143,7 @@ class EnvironmentService:
     async def update_environment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         environment_id: UUID,
         name: Optional[str] = None,
         environment_type: Optional[EnvironmentType] = None,
@@ -130,7 +155,7 @@ class EnvironmentService:
     ) -> Optional[Environment]:
         """Update environment fields."""
         env = await EnvironmentService.get_environment(
-            db, organization_id, workspace_id, environment_id
+            db, organization_id, project_id, environment_id
         )
         if not env:
             return None
@@ -158,12 +183,12 @@ class EnvironmentService:
     async def delete_environment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         environment_id: UUID,
     ) -> bool:
         """Delete an environment."""
         env = await EnvironmentService.get_environment(
-            db, organization_id, workspace_id, environment_id
+            db, organization_id, project_id, environment_id
         )
         if not env:
             return False

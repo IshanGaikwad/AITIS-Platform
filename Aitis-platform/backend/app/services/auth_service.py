@@ -125,7 +125,7 @@ async def get_or_create_user_from_oauth(
     return user
 
 
-async def create_tokens_for_user(db: AsyncSession, user: User, organization_id: Optional[uuid.UUID] = None, workspace_id: Optional[uuid.UUID] = None, role: Optional[str] = None) -> dict:
+async def create_tokens_for_user(db: AsyncSession, user: User, organization_id: Optional[uuid.UUID] = None, project_id: Optional[uuid.UUID] = None, role: Optional[str] = None) -> dict:
     """Create JWT access + refresh tokens for user with optional tenant context."""
     token_data = {
         "sub": str(user.id),
@@ -137,8 +137,8 @@ async def create_tokens_for_user(db: AsyncSession, user: User, organization_id: 
     }
     if organization_id:
         token_data["organization_id"] = str(organization_id)
-    if workspace_id:
-        token_data["workspace_id"] = str(workspace_id)
+    if project_id:
+        token_data["project_id"] = str(project_id)
     if role:
         token_data["role"] = role
 

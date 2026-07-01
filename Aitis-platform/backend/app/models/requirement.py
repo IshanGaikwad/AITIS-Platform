@@ -5,7 +5,7 @@ from typing import Optional
 from enum import Enum
 
 from sqlalchemy import String, Text, ForeignKey, Integer, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,12 +37,12 @@ class RequirementStatus(str, Enum):
 class Requirement(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     __tablename__ = "requirements"
     __table_args__ = (
-        Index("ix_requirement_project_id", "project_id"),
         Index("ix_requirement_workspace_id", "workspace_id"),
+        Index("ix_requirement_project_id", "project_id"),
     )
 
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     external_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Jira key etc.
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -55,7 +55,7 @@ class Requirement(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixi
     version: Mapped[int] = mapped_column(Integer, default=1)
 
     # Relationships
-    project = relationship("Project", back_populates="requirements")
+    workspace = relationship("Workspace", back_populates="requirements")
     acceptance_criteria = relationship(
         "AcceptanceCriterion", back_populates="requirement", lazy="selectin",
         cascade="all, delete-orphan"
@@ -82,7 +82,7 @@ class AcceptanceCriterion(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovern
     )
 
     requirement_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False, index=True
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)

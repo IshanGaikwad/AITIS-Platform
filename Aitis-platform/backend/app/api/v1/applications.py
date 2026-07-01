@@ -1,5 +1,6 @@
 """Application management API routes."""
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,10 +9,33 @@ from pydantic import BaseModel, Field
 
 from app.models import ApplicationType
 from app.services import ApplicationService, PermissionService
-from app.core.security import get_current_user
+from app.core.security import claim_uuid, get_current_user, require_project_access
 from app.db.database import get_db
+from app.services.stack_detection_service import (
+    StackDetectionError,
+    StackDetectionResult,
+    detect_stack,
+)
 
 router = APIRouter(prefix="/applications", tags=["applications"])
+
+
+class StackDetectRequest(BaseModel):
+    """Detect a System Under Test's technology stack from its URL."""
+    url: str = Field(..., min_length=1, max_length=2048)
+
+
+@router.post("/detect-stack", response_model=StackDetectionResult)
+async def detect_application_stack(
+    payload: StackDetectRequest,
+    current_user=Depends(get_current_user),
+):
+    """Fetch a candidate SUT URL and infer its tech stack. Does not persist anything —
+    the frontend confirms the result, then calls create_application/create_environment."""
+    try:
+        return await detect_stack(payload.url)
+    except StackDetectionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 # ── Schemas ──────────────────────────────────────────────────────
@@ -36,14 +60,14 @@ class ApplicationUpdate(BaseModel):
 class ApplicationOut(BaseModel):
     """Application response."""
     id: UUID
-    project_id: UUID
+    workspace_id: UUID
     name: str
     application_type: ApplicationType
     description: Optional[str]
     repository_url: Optional[str]
     metadata_: Optional[dict]
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -51,32 +75,24 @@ class ApplicationOut(BaseModel):
 
 # ── Routes ───────────────────────────────────────────────────────
 
-@router.post("/projects/{project_id}/applications", response_model=ApplicationOut, status_code=201)
+@router.post("/workspaces/{workspace_id}/applications", response_model=ApplicationOut, status_code=201)
 async def create_application(
-    project_id: UUID,
+    workspace_id: UUID,
     data: ApplicationCreate,
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new application in a project."""
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "create",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=project_id,
+    """Create a new application in a workspace."""
+    # User must be a project member with a write role
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to create applications in this project")
 
     app = await ApplicationService.create_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
-        project_id=project_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
+        workspace_id=workspace_id,
         name=data.name,
         application_type=data.application_type,
         description=data.description,
@@ -87,33 +103,23 @@ async def create_application(
     return app
 
 
-@router.get("/projects/{project_id}/applications", response_model=dict)
-async def list_project_applications(
-    project_id: UUID,
+@router.get("/workspaces/{workspace_id}/applications", response_model=dict)
+async def list_workspace_applications(
+    workspace_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all applications in a project."""
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "read",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=project_id,
-    )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to view this project")
+    """List all applications in a workspace."""
+    # User must be a member of the project
+    await require_project_access(db, current_user, claim_uuid(current_user, "project_id"))
 
-    apps, total = await ApplicationService.list_project_applications(
+    apps, total = await ApplicationService.list_workspace_applications(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
-        project_id=project_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
+        workspace_id=workspace_id,
         skip=skip,
         limit=limit,
     )
@@ -135,8 +141,8 @@ async def get_application(
     """Get application by ID."""
     app = await ApplicationService.get_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
     )
 
@@ -157,31 +163,23 @@ async def update_application(
     # Get app first to check permissions
     app = await ApplicationService.get_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
     )
 
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "update",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=app.project_id,
+    # User must be a project member with a write role
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to update this application")
 
     updated_app = await ApplicationService.update_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
         name=data.name,
         application_type=data.application_type,
@@ -203,30 +201,22 @@ async def delete_application(
     # Get app first
     app = await ApplicationService.get_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
     )
 
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "delete",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=app.project_id,
+    # User must be a project member with a write role
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to delete this application")
 
     await ApplicationService.delete_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
     )

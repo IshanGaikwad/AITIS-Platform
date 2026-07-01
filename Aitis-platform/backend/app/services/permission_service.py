@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, oauth2_scheme, verify_token
 from app.db.database import AsyncSessionLocal
-from app.models.tenant import Role, OrganizationMembership, WorkspaceMembership
+from app.models.tenant import Role, OrganizationMembership, ProjectMembership
 from app.models.user import User
 
 
@@ -40,8 +40,8 @@ class Action(str, Enum):
 class Resource(str, Enum):
     """Top-level resource types in the platform."""
     organizations = "organizations"
-    workspaces = "workspaces"
     projects = "projects"
+    workspaces = "workspaces"
     applications = "applications"
     environments = "environments"
     stories = "stories"
@@ -64,8 +64,8 @@ class Resource(str, Enum):
 PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     Role.org_owner.value: {
         Resource.organizations.value: {"manage"},
-        Resource.workspaces.value: {"manage"},
         Resource.projects.value: {"manage"},
+        Resource.workspaces.value: {"manage"},
         Resource.applications.value: {"manage"},
         Resource.environments.value: {"manage"},
         Resource.stories.value: {"manage"},
@@ -83,8 +83,8 @@ PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
     Role.administrator.value: {
         Resource.organizations.value: {"read", "update"},
-        Resource.workspaces.value: {"manage"},
         Resource.projects.value: {"manage"},
+        Resource.workspaces.value: {"manage"},
         Resource.applications.value: {"manage"},
         Resource.environments.value: {"manage"},
         Resource.stories.value: {"manage"},
@@ -102,8 +102,8 @@ PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
     Role.qa_lead.value: {
         Resource.organizations.value: {"read"},
-        Resource.workspaces.value: {"read", "update"},
         Resource.projects.value: {"read", "update"},
+        Resource.workspaces.value: {"read", "update"},
         Resource.applications.value: {"read", "update"},
         Resource.environments.value: {"read", "update"},
         Resource.stories.value: {"manage"},
@@ -121,8 +121,8 @@ PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
     Role.automation_engineer.value: {
         Resource.organizations.value: {"read"},
-        Resource.workspaces.value: {"read"},
         Resource.projects.value: {"read"},
+        Resource.workspaces.value: {"read"},
         Resource.applications.value: {"read"},
         Resource.environments.value: {"read"},
         Resource.stories.value: {"read", "update"},
@@ -140,8 +140,8 @@ PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
     Role.manual_tester.value: {
         Resource.organizations.value: {"read"},
-        Resource.workspaces.value: {"read"},
         Resource.projects.value: {"read"},
+        Resource.workspaces.value: {"read"},
         Resource.applications.value: {"read"},
         Resource.environments.value: {"read"},
         Resource.stories.value: {"read", "update"},
@@ -159,8 +159,8 @@ PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
     Role.developer.value: {
         Resource.organizations.value: {"read"},
-        Resource.workspaces.value: {"read"},
-        Resource.projects.value: {"read", "update"},
+        Resource.projects.value: {"read"},
+        Resource.workspaces.value: {"read", "update"},
         Resource.applications.value: {"read"},
         Resource.environments.value: {"read"},
         Resource.stories.value: {"read", "update"},
@@ -178,8 +178,8 @@ PERMISSION_MATRIX: dict[str, dict[str, set[str]]] = {
     },
     Role.viewer.value: {
         Resource.organizations.value: {"read"},
-        Resource.workspaces.value: {"read"},
         Resource.projects.value: {"read"},
+        Resource.workspaces.value: {"read"},
         Resource.applications.value: {"read"},
         Resource.environments.value: {"read"},
         Resource.stories.value: {"read"},
@@ -245,18 +245,18 @@ class PermissionService:
             return result.scalar_one_or_none()
 
     @staticmethod
-    async def verify_workspace_membership(
+    async def verify_project_membership(
         user_id: str,
-        workspace_id: str,
+        project_id: str,
     ) -> Optional[str]:
-        """Check DB that user belongs to the workspace. Returns their role or None."""
+        """Check DB that user belongs to the project. Returns their role or None."""
         import uuid
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(WorkspaceMembership.role).where(
-                    WorkspaceMembership.user_id == uuid.UUID(user_id),
-                    WorkspaceMembership.workspace_id == uuid.UUID(workspace_id),
+                select(ProjectMembership.role).where(
+                    ProjectMembership.user_id == uuid.UUID(user_id),
+                    ProjectMembership.project_id == uuid.UUID(project_id),
                 )
             )
             return result.scalar_one_or_none()
@@ -267,19 +267,19 @@ class PermissionService:
         resource: str,
         action: str,
         organization_id: Optional[str] = None,
-        workspace_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> bool:
         """Full permission check: JWT role + (optional) DB membership verification.
 
         1. Check the permission matrix for the user's role.
-        2. If org/workspace IDs are provided, also verify DB membership.
+        2. If org/project IDs are provided, also verify DB membership.
         """
-        # Get role from user's memberships — prefer workspace role, fall back to org role
+        # Get role from user's memberships — prefer project role, fall back to org role
         role: Optional[str] = None
 
-        if workspace_id:
-            role = await PermissionService.verify_workspace_membership(
-                str(user.id), workspace_id
+        if project_id:
+            role = await PermissionService.verify_project_membership(
+                str(user.id), project_id
             )
         if role is None and organization_id:
             role = await PermissionService.verify_org_membership(

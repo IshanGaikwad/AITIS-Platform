@@ -1,16 +1,17 @@
-"""End-to-end tests for Phase 1 frontend: Projects, Applications, Environments.
-
-Coverage:
-- Project creation and listing
-- Application management within projects
-- Environment management within applications
-- UI navigation and interactions
-"""
+/**
+ * End-to-end tests for Phase 1 frontend: Projects, Applications, Environments.
+ *
+ * Coverage:
+ * - Project creation and listing
+ * - Application management within projects
+ * - Environment management within applications
+ * - UI navigation and interactions
+ */
 
 import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3000";
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001/api";
 
 test.describe("Phase 1: Project Management", () => {
   test.beforeEach(async ({ page, context }) => {

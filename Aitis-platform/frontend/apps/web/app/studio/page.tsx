@@ -17,8 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/use-toast";
-import { getProjects, createProject } from "@/lib/api";
-import type { Project } from "@/lib/types";
+import { getWorkspaces, createWorkspace, getProjects } from "@/lib/api";
+import type { Workspace } from "@/lib/types";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 function generateKey(name: string): string {
@@ -54,8 +54,22 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
         <AlertCircle className="h-8 w-8 text-rose-400" />
       </div>
       <h3 className="mb-1 text-base font-semibold text-slate-900">Failed to load workspaces</h3>
-      <p className="mb-4 text-sm text-slate-500">Something went wrong while fetching your projects.</p>
+      <p className="mb-4 text-sm text-slate-500">Something went wrong while fetching your workspaces.</p>
       <Button size="sm" variant="outline" onClick={onRetry}>Try again</Button>
+    </div>
+  );
+}
+
+function NoProjectState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <div className="mb-4 rounded-full bg-slate-100 p-4">
+        <FolderOpen className="h-8 w-8 text-slate-400" />
+      </div>
+      <h3 className="mb-1 text-base font-semibold text-slate-900">No project selected</h3>
+      <p className="text-sm text-slate-500">
+        Create or select a project from the switcher (top-left) to add workspaces.
+      </p>
     </div>
   );
 }
@@ -67,7 +81,7 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
         <FolderOpen className="h-8 w-8 text-slate-400" />
       </div>
       <h3 className="mb-1 text-base font-semibold text-slate-900">No workspaces yet</h3>
-      <p className="mb-4 text-sm text-slate-500">Get started by creating your first workspace.</p>
+      <p className="mb-4 text-sm text-slate-500">Get started by creating your first workspace in this project.</p>
       <Button size="sm" onClick={onCreateClick}>
         <Plus className="h-4 w-4" />
         Create your first workspace
@@ -76,19 +90,19 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
   );
 }
 
-function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
+function WorkspaceCard({ workspace, onClick }: { workspace: Workspace; onClick: () => void }) {
   return (
     <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={onClick}>
       <CardContent className="space-y-4 p-5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-900">{project.name}</p>
-            <p className="mt-0.5 truncate font-mono text-xs text-slate-500">{project.key}</p>
+            <p className="truncate font-semibold text-slate-900">{workspace.name}</p>
+            <p className="mt-0.5 truncate font-mono text-xs text-slate-500">{workspace.key}</p>
           </div>
-          <Badge tone={project.status === "active" ? "green" : "slate"}>{project.status}</Badge>
+          <Badge tone={workspace.status === "active" ? "green" : "slate"}>{workspace.status}</Badge>
         </div>
-        {project.description && (
-          <p className="line-clamp-2 text-xs text-slate-500">{project.description}</p>
+        {workspace.description && (
+          <p className="line-clamp-2 text-xs text-slate-500">{workspace.description}</p>
         )}
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
           <div><span className="text-slate-400">Health: </span><span className="font-medium text-slate-700">—</span></div>
@@ -97,7 +111,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           <div>
             <span className="text-slate-400">Created: </span>
             <span className="font-medium text-slate-700">
-              {new Date(project.created_at).toLocaleDateString()}
+              {new Date(workspace.created_at).toLocaleDateString()}
             </span>
           </div>
         </div>
@@ -111,7 +125,8 @@ export default function StudioPage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [projectName, setProjectName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,26 +137,45 @@ export default function StudioPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const fetchProjects = useCallback(async () => {
+  const fetchWorkspaces = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      if (!user?.workspace_id) {
+      if (!user?.project_id) {
         setLoading(false);
         return;
       }
-      const data = await getProjects(user.workspace_id);
-      setProjects(data);
+      const data = await getWorkspaces(user.project_id);
+      setWorkspaces(data);
     } catch {
       setError("Failed to load workspaces.");
     } finally {
       setLoading(false);
     }
-  }, [user?.workspace_id]);
+  }, [user?.project_id]);
 
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
+
+  // Resolve the active project's name for context
+  useEffect(() => {
+    if (!user?.organization_id || !user?.project_id) {
+      setProjectName(null);
+      return;
+    }
+    let cancelled = false;
+    getProjects(user.organization_id)
+      .then((projects) => {
+        if (cancelled) return;
+        const active = projects.find((p) => p.id === user.project_id);
+        setProjectName(active?.name ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.organization_id, user?.project_id]);
 
   const handleNameChange = (name: string) => {
     setFormName(name);
@@ -165,17 +199,17 @@ export default function StudioPage() {
     setSubmitting(true);
     setFormError(null);
     try {
-      if (!user?.workspace_id) {
-        setFormError("No workspace context. Please log in again.");
+      if (!user?.project_id) {
+        setFormError("No active project. Create or select a project from the switcher first.");
         setSubmitting(false);
         return;
       }
-      const created = await createProject(user.workspace_id, {
+      const created = await createWorkspace(user.project_id, {
         name: formName.trim(),
         key: formKey.trim() || generateKey(formName),
         description: formDescription.trim() || undefined,
       });
-      setProjects((prev) => [created, ...prev]);
+      setWorkspaces((prev) => [created, ...prev]);
       setModalOpen(false);
       toast({ title: "Workspace created", variant: "success" });
     } catch (err) {
@@ -189,8 +223,17 @@ export default function StudioPage() {
     <ProtectedRoute>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Studio</h1>
-        <Button size="sm" onClick={openModal}>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Studio</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {projectName ? (
+              <>Workspaces in <span className="font-medium text-slate-700">{projectName}</span></>
+            ) : (
+              "Select or create a project from the switcher to begin"
+            )}
+          </p>
+        </div>
+        <Button size="sm" onClick={openModal} disabled={!user?.project_id}>
           <Plus className="h-4 w-4" />
           Create Workspace
         </Button>
@@ -198,17 +241,19 @@ export default function StudioPage() {
 
       {loading ? (
         <LoadingSkeleton />
+      ) : !user?.project_id ? (
+        <NoProjectState />
       ) : error ? (
-        <ErrorState onRetry={fetchProjects} />
-      ) : projects.length === 0 ? (
+        <ErrorState onRetry={fetchWorkspaces} />
+      ) : workspaces.length === 0 ? (
         <EmptyState onCreateClick={openModal} />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {projects.map((project) => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              onClick={() => router.push(`/studio/${project.id}`)}
+          {workspaces.map((workspace) => (
+            <WorkspaceCard
+              key={workspace.id}
+              workspace={workspace}
+              onClick={() => router.push(`/studio/${workspace.id}`)}
             />
           ))}
         </div>

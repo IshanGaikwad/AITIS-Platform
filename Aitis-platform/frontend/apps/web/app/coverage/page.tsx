@@ -38,9 +38,9 @@ export default function CoverageViewPage() {
   useEffect(() => {
     async function fetchCoverage() {
       try {
-        const projectId = user?.workspace_id || "";
-        if (!projectId) { setLoading(false); return; }
-        const data = await getRequirementCoverage(projectId);
+        const workspaceId = user?.project_id || "";
+        if (!workspaceId) { setLoading(false); return; }
+        const data = await getRequirementCoverage(workspaceId);
         setReport(data);
       } catch (error) {
         console.error("Failed to fetch coverage report:", error);
@@ -49,7 +49,7 @@ export default function CoverageViewPage() {
       }
     }
     fetchCoverage();
-  }, [user?.workspace_id]);
+  }, [user?.project_id]);
 
   if (loading) {
     return (

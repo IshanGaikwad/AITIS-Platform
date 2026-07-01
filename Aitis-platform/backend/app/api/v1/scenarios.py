@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.security import get_current_user
 from app.schemas.scenario import ScenarioOut
-from app.schemas.testcase import TestCaseOut
+from app.schemas.testcase import TestCasePipelineOut
 from app.services.scenario_service import to_gherkin
 
 router = APIRouter()
@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.post("/generate", response_model=ScenarioOut)
 async def generate(
-    payload: TestCaseOut,
+    payload: TestCasePipelineOut,
     current_user=Depends(get_current_user),
 ):
     """Convert a test case into a Gherkin scenario."""

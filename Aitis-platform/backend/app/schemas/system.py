@@ -14,7 +14,7 @@ class IntegrationCreate(BaseModel):
     config: Optional[dict] = None
     base_url: Optional[str] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class IntegrationUpdate(BaseModel):
@@ -34,7 +34,7 @@ class IntegrationOut(BaseModel):
     last_sync_at: Optional[datetime] = None
     sync_error: Optional[str] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -64,7 +64,7 @@ class SecretReferenceOut(BaseModel):
 class AuditEventOut(BaseModel):
     id: uuid.UUID
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     user_id: Optional[uuid.UUID] = None
     action: str
     entity_type: str
@@ -108,7 +108,7 @@ class NotificationOut(BaseModel):
 
 # ── Defect ──────────────────────────────────────────────────────────
 class DefectCreate(BaseModel):
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     case_execution_id: Optional[uuid.UUID] = None
     external_id: Optional[str] = None
     title: str = Field(..., min_length=1, max_length=500)
@@ -119,7 +119,7 @@ class DefectCreate(BaseModel):
     environment: Optional[str] = None
     labels: Optional[list] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class DefectUpdate(BaseModel):
@@ -134,7 +134,7 @@ class DefectUpdate(BaseModel):
 
 class DefectOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     case_execution_id: Optional[uuid.UUID] = None
     external_id: Optional[str] = None
     title: str
@@ -145,7 +145,7 @@ class DefectOut(BaseModel):
     environment: Optional[str] = None
     labels: Optional[list] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -161,7 +161,7 @@ class HealingProposalCreate(BaseModel):
     explanation: Optional[str] = None
     confidence_score: Optional[float] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class HealingProposalOut(BaseModel):
@@ -176,7 +176,7 @@ class HealingProposalOut(BaseModel):
     applied_at: Optional[datetime] = None
     reverted_at: Optional[datetime] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

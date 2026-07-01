@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlalchemy import String, Text, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,13 +22,13 @@ class ApplicationType(str, Enum):
 
 
 class Application(Base, UUIDMixin, TimestampMixin, TenantMixin):
-    """Represents an application/deployment target within a project."""
+    """Represents an application/deployment target within a workspace."""
 
     __tablename__ = "applications"
 
     # Foreign keys
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # Core fields
@@ -43,8 +43,8 @@ class Application(Base, UUIDMixin, TimestampMixin, TenantMixin):
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True, default=dict)
 
     # Relationships
-    project = relationship(
-        "Project",
+    workspace = relationship(
+        "Workspace",
         back_populates="applications",
         lazy="selectin"
     )

@@ -1,39 +1,42 @@
-"""Projects API — CRUD for Project entities."""
+"""Projects API — CRUD for Project + membership management."""
 
 import uuid
-from typing import List, Optional
+from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import claim_uuid, enforce_tenant_claims, get_current_user, require_workspace_access
+from app.core.security import get_current_user, require_organization_access, require_project_access
 from app.db.database import get_db
-from app.models.project import Project
-from app.models.requirement import Requirement
-from app.models.test import TestCase
-from app.models.tenant import Workspace
-from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
+from app.models.tenant import Organization, Role, Project, ProjectMembership
+from app.schemas.tenant import (
+    ProjectCreate,
+    ProjectMembershipCreate,
+    ProjectMembershipOut,
+    ProjectOut,
+    ProjectUpdate,
+)
 
 router = APIRouter()
 
 
 @router.get("", response_model=List[ProjectOut])
 async def list_projects(
-    workspace_id: Optional[uuid.UUID] = Query(None),
+    organization_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List projects in the current workspace."""
-    query = select(Project)
-    ws_id = workspace_id or current_user.get("workspace_id")
-    if ws_id:
-        ws_id = uuid.UUID(str(ws_id))
-        await require_workspace_access(db, current_user, ws_id)
-        query = query.where(Project.workspace_id == ws_id)
-    org_id = current_user.get("organization_id")
-    if org_id:
-        query = query.where(Project.organization_id == org_id)
+    """List projects the current user has access to."""
+    user_id = current_user.get("user_id")
+    query = (
+        select(Project)
+        .join(ProjectMembership)
+        .where(ProjectMembership.user_id == user_id)
+    )
+    if organization_id:
+        await require_organization_access(db, current_user, organization_id)
+        query = query.where(Project.organization_id == organization_id)
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -45,11 +48,11 @@ async def get_project(
     current_user=Depends(get_current_user),
 ):
     result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalars().first()
-    if not project:
+    ws = result.scalars().first()
+    if not ws:
         raise HTTPException(status_code=404, detail="Project not found")
-    enforce_tenant_claims(project.organization_id, project.workspace_id, current_user)
-    return project
+    await require_project_access(db, current_user, project_id)
+    return ws
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
@@ -58,33 +61,35 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Create a new project. Requires administrator or QA lead role."""
-    await require_workspace_access(db, current_user, payload.workspace_id, ("administrator", "qa_lead"))
-    org_id = claim_uuid(current_user, "organization_id", "org_id")
-    if org_id is None:
-        ws_result = await db.execute(select(Workspace).where(Workspace.id == payload.workspace_id))
-        workspace = ws_result.scalars().first()
-        if not workspace:
-            raise HTTPException(status_code=404, detail="Workspace not found")
-        org_id = workspace.organization_id
-    if payload.organization_id and org_id and payload.organization_id != org_id:
-        raise HTTPException(status_code=403, detail="Tenant access denied")
-    if not payload.organization_id:
-        payload.organization_id = org_id
-
-    project = Project(
-        name=payload.name,
-        key=payload.key,
-        description=payload.description,
-        status=payload.status,
-        settings=payload.settings or {},
-        workspace_id=payload.workspace_id,
-        organization_id=payload.organization_id,
+    """Create a project within an organization. Requires org_owner or administrator."""
+    await require_organization_access(db, current_user, payload.organization_id, ("org_owner", "administrator"))
+    # Verify org exists
+    org_result = await db.execute(
+        select(Organization).where(Organization.id == payload.organization_id)
     )
-    db.add(project)
+    if not org_result.scalars().first():
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    ws = Project(
+        name=payload.name,
+        slug=payload.slug,
+        organization_id=payload.organization_id,
+        description=payload.description,
+        settings=payload.settings or {},
+    )
+    db.add(ws)
+    await db.flush()
+
+    # Creator becomes project admin
+    membership = ProjectMembership(
+        user_id=current_user.get("user_id"),
+        project_id=ws.id,
+        role=Role.administrator,
+    )
+    db.add(membership)
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(ws)
+    return ws
 
 
 @router.put("/{project_id}", response_model=ProjectOut)
@@ -94,58 +99,80 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    await require_project_access(db, current_user, project_id, ("org_owner", "administrator"))
     result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalars().first()
-    if not project:
+    ws = result.scalars().first()
+    if not ws:
         raise HTTPException(status_code=404, detail="Project not found")
-    await require_workspace_access(db, current_user, project.workspace_id, ("administrator", "qa_lead"))
 
     for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(project, field, value)
+        setattr(ws, field, value)
 
     await db.commit()
-    await db.refresh(project)
-    return project
+    await db.refresh(ws)
+    return ws
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_project(
+@router.post("/{project_id}/members", response_model=ProjectMembershipOut,
+             status_code=status.HTTP_201_CREATED)
+async def add_project_member(
+    project_id: uuid.UUID,
+    payload: ProjectMembershipCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Add a member to the project."""
+    await require_project_access(db, current_user, project_id, ("org_owner", "administrator"))
+    result = await db.execute(
+        select(ProjectMembership).where(
+            ProjectMembership.user_id == payload.user_id,
+            ProjectMembership.project_id == project_id,
+        )
+    )
+    if result.scalars().first():
+        raise HTTPException(status_code=409, detail="User is already a member")
+
+    membership = ProjectMembership(
+        user_id=payload.user_id,
+        project_id=project_id,
+        role=Role(payload.role),
+    )
+    db.add(membership)
+    await db.commit()
+    await db.refresh(membership)
+    return membership
+
+
+@router.get("/{project_id}/members", response_model=List[ProjectMembershipOut])
+async def list_project_members(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalars().first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    await require_workspace_access(db, current_user, project.workspace_id, ("administrator", "org_owner"))
-    await db.delete(project)
-    await db.commit()
+    await require_project_access(db, current_user, project_id)
+    result = await db.execute(
+        select(ProjectMembership)
+        .where(ProjectMembership.project_id == project_id)
+    )
+    return result.scalars().all()
 
 
-@router.get("/{project_id}/stats")
-async def get_project_stats(
+@router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_project_member(
     project_id: uuid.UUID,
+    user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Return aggregate counts for a project's dashboard."""
-    # Verify project exists
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalars().first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    enforce_tenant_claims(project.organization_id, project.workspace_id, current_user)
-
-    req_count = await db.execute(
-        select(func.count()).select_from(Requirement).where(Requirement.project_id == project_id)
+    await require_project_access(db, current_user, project_id, ("org_owner", "administrator"))
+    result = await db.execute(
+        select(ProjectMembership).where(
+            ProjectMembership.user_id == user_id,
+            ProjectMembership.project_id == project_id,
+        )
     )
-    tc_count = await db.execute(
-        select(func.count()).select_from(TestCase).where(TestCase.project_id == project_id)
-    )
-
-    return {
-        "total_requirements": req_count.scalar() or 0,
-        "total_test_cases": tc_count.scalar() or 0,
-        "team_members": 0,  # TODO: implement team membership
-    }
+    membership = result.scalars().first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    await db.delete(membership)
+    await db.commit()

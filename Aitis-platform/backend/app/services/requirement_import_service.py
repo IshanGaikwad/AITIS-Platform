@@ -177,8 +177,8 @@ class RequirementImportService:
     async def import_requirement(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
         project_id: UUID,
+        workspace_id: UUID,
         provider_type: str,
         payload: Dict[str, Any],
         imported_by_user_id: UUID,
@@ -189,8 +189,8 @@ class RequirementImportService:
         Args:
             db: Database session
             organization_id: Tenant organization
-            workspace_id: Tenant workspace
-            project_id: Target project
+            project_id: Tenant project
+            workspace_id: Target workspace
             provider_type: "jira", "manual", etc.
             payload: Provider-specific data
             imported_by_user_id: User performing import
@@ -212,7 +212,7 @@ class RequirementImportService:
         from app.schemas.requirement import RequirementCreate
 
         req_create = RequirementCreate(
-            project_id=project_id,
+            workspace_id=workspace_id,
             title=req_payload.title,
             description=req_payload.description,
             type=req_payload.requirement_type or "functional",
@@ -223,7 +223,7 @@ class RequirementImportService:
             source_metadata=req_payload.source_metadata,
             acceptanceCriteria=req_payload.acceptance_criteria or [],
             organization_id=organization_id,
-            workspace_id=workspace_id,
+            project_id=project_id,
         )
 
         requirement = await create_requirement(db=db, payload=req_create)

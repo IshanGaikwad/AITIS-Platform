@@ -28,7 +28,7 @@ import { useForm } from "react-hook-form";
 
 interface Application {
   id: string;
-  project_id: string;
+  workspace_id: string;
   name: string;
   description?: string;
   application_type: "WEB" | "MOBILE_WEB" | "ANDROID" | "IOS" | "HYBRID";
@@ -45,7 +45,9 @@ interface ApplicationFormData {
   repository_url?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+// Client-side: use a relative base so Next.js rewrites proxy /api/* to the backend
+// (avoids CORS and keeps the port in next.config.mjs as the single source of truth).
+const API_BASE = "/api";
 
 const APP_TYPE_ICONS: Record<string, React.ReactNode> = {
   WEB: <Globe className="h-4 w-4" />,
@@ -55,21 +57,23 @@ const APP_TYPE_ICONS: Record<string, React.ReactNode> = {
   HYBRID: <Smartphone className="h-4 w-4" />,
 };
 
-async function fetchApplications(projectId: string): Promise<Application[]> {
-  const response = await fetch(`${API_BASE}/projects/${projectId}/applications`, {
+async function fetchApplications(workspaceId: string): Promise<Application[]> {
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/applications`, {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("aitis_access_token")}`,
     },
   });
   if (!response.ok) throw new Error("Failed to fetch applications");
-  return response.json();
+  // Backend returns a paginated envelope: { items, total, skip, limit }
+  const data = await response.json();
+  return data.items ?? [];
 }
 
 async function createApplication(
-  projectId: string,
+  workspaceId: string,
   data: ApplicationFormData
 ): Promise<Application> {
-  const response = await fetch(`${API_BASE}/projects/${projectId}/applications`, {
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/applications`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -82,11 +86,11 @@ async function createApplication(
 }
 
 async function deleteApplication(
-  projectId: string,
+  workspaceId: string,
   applicationId: string
 ): Promise<void> {
   const response = await fetch(
-    `${API_BASE}/projects/${projectId}/applications/${applicationId}`,
+    `${API_BASE}/workspaces/${workspaceId}/applications/${applicationId}`,
     {
       method: "DELETE",
       headers: {
@@ -105,18 +109,22 @@ interface Environment {
   is_active: boolean;
 }
 
-async function fetchEnvironments(projectId: string, applicationId: string): Promise<Environment[]> {
+async function fetchEnvironments(workspaceId: string, applicationId: string): Promise<Environment[]> {
+  // Environments are addressed by application id (not nested under workspaces):
+  // GET /api/applications/{application_id}/environments
   const response = await fetch(
-    `${API_BASE}/projects/${projectId}/applications/${applicationId}/environments`,
+    `${API_BASE}/applications/${applicationId}/environments`,
     {
       headers: { Authorization: `Bearer ${localStorage.getItem("aitis_access_token")}` },
     }
   );
   if (!response.ok) return [];
-  return response.json();
+  // Backend returns a paginated envelope: { items, total, skip, limit }
+  const data = await response.json();
+  return data.items ?? [];
 }
 
-export function ApplicationsList({ projectId }: { projectId: string }) {
+export function ApplicationsList({ workspaceId }: { workspaceId: string }) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -124,15 +132,15 @@ export function ApplicationsList({ projectId }: { projectId: string }) {
 
   // Fetch applications
   const { data: applications = [], isLoading } = useQuery({
-    queryKey: ["applications", projectId],
-    queryFn: () => fetchApplications(projectId),
+    queryKey: ["applications", workspaceId],
+    queryFn: () => fetchApplications(workspaceId),
   });
 
   // Create application mutation
   const createMutation = useMutation({
-    mutationFn: (data: ApplicationFormData) => createApplication(projectId, data),
+    mutationFn: (data: ApplicationFormData) => createApplication(workspaceId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["applications", workspaceId] });
       setIsCreateOpen(false);
       reset();
     },
@@ -140,9 +148,9 @@ export function ApplicationsList({ projectId }: { projectId: string }) {
 
   // Delete application mutation
   const deleteMutation = useMutation({
-    mutationFn: (appId: string) => deleteApplication(projectId, appId),
+    mutationFn: (appId: string) => deleteApplication(workspaceId, appId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["applications", workspaceId] });
     },
   });
 
@@ -230,7 +238,7 @@ export function ApplicationsList({ projectId }: { projectId: string }) {
                 </div>
                 {expandedAppId === app.id && (
                   <EnvironmentsList
-                    projectId={projectId}
+                    workspaceId={workspaceId}
                     applicationId={app.id}
                   />
                 )}
@@ -306,15 +314,15 @@ export function ApplicationsList({ projectId }: { projectId: string }) {
 }
 
 function EnvironmentsList({
-  projectId,
+  workspaceId,
   applicationId,
 }: {
-  projectId: string;
+  workspaceId: string;
   applicationId: string;
 }) {
   const { data: environments = [], isLoading } = useQuery({
-    queryKey: ["environments", projectId, applicationId],
-    queryFn: () => fetchEnvironments(projectId, applicationId),
+    queryKey: ["environments", workspaceId, applicationId],
+    queryFn: () => fetchEnvironments(workspaceId, applicationId),
   });
 
   if (isLoading) {

@@ -48,7 +48,7 @@ class TokenData(BaseModel):
     sub: Optional[str] = None
     user_id: Optional[uuid.UUID] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     role: Optional[str] = None
 
 
@@ -59,7 +59,7 @@ class LoginResponse(BaseModel):
     user: UserOut
 
 
-class WorkspaceSelect(BaseModel):
-    """Request body for selecting an active workspace context."""
-    workspace_id: uuid.UUID
+class ProjectSelect(BaseModel):
+    """Request body for selecting an active project context."""
+    project_id: uuid.UUID
     user_id: Optional[int] = None

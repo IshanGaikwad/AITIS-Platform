@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ── Requirement ─────────────────────────────────────────────────────
 class RequirementCreate(BaseModel):
     """Schema for creating a requirement — compatible with legacy StoryCreate fields."""
-    project_id: Optional[uuid.UUID] = None
+    workspace_id: Optional[uuid.UUID] = None
     external_id: Optional[str] = Field(None, description="Jira key or other external ID (e.g. AUTH-123)")
     title: str = Field(..., min_length=1, max_length=500)
     description: str = Field(..., min_length=1)
@@ -22,7 +22,7 @@ class RequirementCreate(BaseModel):
     acceptanceCriteria: List[str] = Field(default_factory=list, description="AC text lines — legacy compat")
     framework: str = Field("Playwright", description="Target automation framework")
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
     @property
     def jiraId(self) -> Optional[str]:
@@ -45,7 +45,7 @@ class RequirementUpdate(BaseModel):
 
 class RequirementOut(BaseModel):
     id: uuid.UUID
-    project_id: Optional[uuid.UUID] = None
+    workspace_id: Optional[uuid.UUID] = None
     external_id: Optional[str] = None
     title: str
     description: str
@@ -56,7 +56,7 @@ class RequirementOut(BaseModel):
     source_metadata: Optional[dict] = None
     version: int = 1
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     acceptanceCriteria: List[str] = Field(default_factory=list)
     framework: str = "Playwright"
     created_at: datetime
@@ -85,7 +85,7 @@ class AcceptanceCriterionCreate(BaseModel):
     order: int = 0
     is_ai_generated: bool = False
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class AcceptanceCriterionUpdate(BaseModel):
@@ -103,7 +103,7 @@ class AcceptanceCriterionOut(BaseModel):
     order: int
     is_ai_generated: bool
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

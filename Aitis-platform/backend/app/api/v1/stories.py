@@ -30,8 +30,8 @@ def _to_out(req: Requirement) -> RequirementOut:
     ac_texts = [ac.text for ac in req.acceptance_criteria] if req.acceptance_criteria else []
     return RequirementOut(
         id=req.id,
-        project_id=req.project_id,
-        jiraId=req.external_id,
+        workspace_id=req.workspace_id,
+        external_id=req.external_id,
         title=req.title,
         description=req.description,
         type=req.type,
@@ -42,7 +42,7 @@ def _to_out(req: Requirement) -> RequirementOut:
         version=req.version,
         acceptanceCriteria=ac_texts,
         organization_id=req.organization_id,
-        workspace_id=req.workspace_id,
+        project_id=req.project_id,
         ai_input_source=req.ai_input_source,
         ai_model_id=req.ai_model_id,
         ai_prompt_version=req.ai_prompt_version,
@@ -60,14 +60,14 @@ def _to_out(req: Requirement) -> RequirementOut:
 
 @router.get("", response_model=List[RequirementOut])
 async def list_all_requirements(
-    project_id: Optional[uuid.UUID] = Query(None),
+    workspace_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List requirements scoped to the user's organization/workspace."""
+    """List requirements scoped to the user's organization/project."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
-    reqs = await list_requirements(db, organization_id=org_id, workspace_id=ws_id, project_id=project_id)
+    ws_id = current_user.get("project_id")
+    reqs = await list_requirements(db, organization_id=org_id, project_id=ws_id, workspace_id=workspace_id)
     return [_to_out(r) for r in reqs]
 
 
@@ -90,11 +90,16 @@ async def create_new_requirement(
     current_user=Depends(require_role("administrator", "qa_lead", "automation_engineer")),
 ):
     """Create a new requirement. Requires admin, QA lead, or automation engineer role."""
+    # A persisted requirement must belong to a workspace (DB column is NOT NULL).
+    # RequirementCreate is also reused by the un-persisted AI pipeline, so the
+    # field is optional on the schema — enforce it here for the create path.
+    if payload.workspace_id is None:
+        raise HTTPException(status_code=422, detail="workspace_id is required to create a requirement")
     # Inject tenant context from JWT if not provided
     if not payload.organization_id:
         payload.organization_id = current_user.get("organization_id")
-    if not payload.workspace_id:
-        payload.workspace_id = current_user.get("workspace_id")
+    if not payload.project_id:
+        payload.project_id = current_user.get("project_id")
     req = await create_requirement(db, payload)
     return _to_out(req)
 

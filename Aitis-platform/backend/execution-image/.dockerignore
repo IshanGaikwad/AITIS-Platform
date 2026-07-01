@@ -1,0 +1,5 @@
+*
+!Dockerfile
+!runner.py
+!run_tests.sh
+!playwright.config.template.ts

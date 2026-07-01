@@ -42,7 +42,7 @@ class ExecutionQueue:
         script_id: uuid.UUID,
         script_version_id: uuid.UUID,
         organization_id: uuid.UUID,
-        workspace_id: uuid.UUID,
+        project_id: uuid.UUID,
         priority: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -53,7 +53,7 @@ class ExecutionQueue:
             script_id: AutomationScript UUID
             script_version_id: ScriptVersion UUID
             organization_id: Tenant org ID
-            workspace_id: Tenant workspace ID
+            project_id: Tenant project ID
             priority: Higher = runs sooner (default 0)
             metadata: Extra job metadata dict
         """
@@ -62,7 +62,7 @@ class ExecutionQueue:
             "script_id": str(script_id),
             "script_version_id": str(script_version_id),
             "organization_id": str(organization_id),
-            "workspace_id": str(workspace_id),
+            "project_id": str(project_id),
             "priority": priority,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "metadata": metadata or {},

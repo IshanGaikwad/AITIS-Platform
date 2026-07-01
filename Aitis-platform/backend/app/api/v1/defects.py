@@ -17,7 +17,7 @@ from app.core.security import get_current_user, require_role
 from app.db.database import get_db
 from app.models.artifact import Defect, DefectSeverity, DefectStatus
 from app.models.test import TestCaseExecution, TestExecution
-from app.models.project import Project
+from app.models.workspace import Workspace
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class DefectCreate(BaseModel):
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     case_execution_id: Optional[uuid.UUID] = None
     title: str = Field(..., min_length=1, max_length=500)
     description: Optional[str] = None
@@ -52,7 +52,7 @@ class DefectUpdate(BaseModel):
 
 class DefectOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     case_execution_id: Optional[uuid.UUID] = None
     external_id: Optional[str] = None
     title: str
@@ -63,7 +63,7 @@ class DefectOut(BaseModel):
     environment: Optional[str] = None
     labels: Optional[List[str]] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -89,7 +89,7 @@ class DefectSummary(BaseModel):
 
 @router.get("", response_model=List[DefectOut])
 async def list_defects(
-    project_id: Optional[uuid.UUID] = Query(None, description="Filter by project"),
+    workspace_id: Optional[uuid.UUID] = Query(None, description="Filter by workspace"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     severity: Optional[str] = Query(None, description="Filter by severity"),
     search: Optional[str] = Query(None, description="Search in title/description"),
@@ -100,15 +100,15 @@ async def list_defects(
 ):
     """List defects with optional filters."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     stmt = select(Defect).where(
         Defect.organization_id == org_id,
-        Defect.workspace_id == ws_id,
+        Defect.project_id == ws_id,
     )
 
-    if project_id:
-        stmt = stmt.where(Defect.project_id == project_id)
+    if workspace_id:
+        stmt = stmt.where(Defect.workspace_id == workspace_id)
     if status_filter:
         stmt = stmt.where(Defect.status == status_filter)
     if severity:
@@ -128,20 +128,20 @@ async def list_defects(
 
 @router.get("/summary", response_model=DefectSummary)
 async def defect_summary(
-    project_id: Optional[uuid.UUID] = Query(None),
+    workspace_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Get defect counts by status and severity."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     base = select(Defect).where(
         Defect.organization_id == org_id,
-        Defect.workspace_id == ws_id,
+        Defect.project_id == ws_id,
     )
-    if project_id:
-        base = base.where(Defect.project_id == project_id)
+    if workspace_id:
+        base = base.where(Defect.workspace_id == workspace_id)
 
     # Total
     total_result = await db.execute(select(func.count()).select_from(base.subquery()))
@@ -174,15 +174,15 @@ async def create_defect(
 ):
     """Create a new defect."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
-    # Verify project exists
-    project = await db.get(Project, payload.project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    # Verify workspace exists
+    workspace = await db.get(Workspace, payload.workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
 
     defect = Defect(
-        project_id=payload.project_id,
+        workspace_id=payload.workspace_id,
         case_execution_id=payload.case_execution_id,
         title=payload.title,
         description=payload.description,
@@ -193,7 +193,7 @@ async def create_defect(
         labels=payload.labels or [],
         external_id=payload.external_id,
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(defect)
     await db.commit()

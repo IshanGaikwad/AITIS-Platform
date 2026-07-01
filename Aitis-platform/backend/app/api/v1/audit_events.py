@@ -18,7 +18,7 @@ router = APIRouter()
 @router.get("", response_model=List[AuditEventOut])
 async def list_audit_events(
     organization_id: Optional[uuid.UUID] = Query(None),
-    workspace_id: Optional[uuid.UUID] = Query(None),
+    project_id: Optional[uuid.UUID] = Query(None),
     user_id: Optional[uuid.UUID] = Query(None),
     entity_type: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
@@ -33,8 +33,8 @@ async def list_audit_events(
     org_id = organization_id or current_user.get("organization_id")
     if org_id:
         query = query.where(AuditEvent.organization_id == org_id)
-    if workspace_id:
-        query = query.where(AuditEvent.workspace_id == workspace_id)
+    if project_id:
+        query = query.where(AuditEvent.project_id == project_id)
     if user_id:
         query = query.where(AuditEvent.user_id == user_id)
     if entity_type:

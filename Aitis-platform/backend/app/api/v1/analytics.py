@@ -211,7 +211,7 @@ async def create_healing_proposal(
 ):
     """Generate and persist a healing proposal for a failing script."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     proposal = generate_healing_proposal(
         script_code=payload.script_code,
@@ -236,7 +236,7 @@ async def create_healing_proposal(
         explanation=proposal.explanation,
         confidence_score=proposal.confidence_score,
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(db_proposal)
     await db.commit()
@@ -300,11 +300,11 @@ async def list_healing_proposals(
 ):
     """List healing proposals, optionally filtered by script or status."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     stmt = select(HealingProposalModel).where(
         HealingProposalModel.organization_id == org_id,
-        HealingProposalModel.workspace_id == ws_id,
+        HealingProposalModel.project_id == ws_id,
     )
     if script_id:
         stmt = stmt.where(HealingProposalModel.script_id == script_id)

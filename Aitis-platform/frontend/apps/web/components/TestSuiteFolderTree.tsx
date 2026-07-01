@@ -40,11 +40,11 @@ interface FolderNode {
 }
 
 export function TestSuiteFolderTree({ 
-  projectId, 
+  workspaceId, 
   onSelectCase, 
   onSelectFolder 
 }: { 
-  projectId: string; 
+  workspaceId: string; 
   onSelectCase: (caseId: string) => void;
   onSelectFolder: (folderId: string) => void;
 }) {
@@ -53,12 +53,12 @@ export function TestSuiteFolderTree({
 
   useEffect(() => {
     loadTree();
-  }, [projectId]);
+  }, [workspaceId]);
 
   async function loadTree() {
     setLoading(true);
     try {
-      const folders = await getFolderTree(projectId);
+      const folders = await getFolderTree(workspaceId);
       setTree(buildTree(folders));
     } catch (error) {
       console.error("Failed to load folder tree:", error);
@@ -85,8 +85,8 @@ export function TestSuiteFolderTree({
       await createFolder({
         name,
         parent_id: parentId || null,
-        project_id: projectId,
-        // organization_id and workspace_id are typically handled by backend from auth token
+        workspace_id: workspaceId,
+        // organization_id and project_id are typically handled by backend from auth token
       });
       await loadTree();
     } catch (error) {

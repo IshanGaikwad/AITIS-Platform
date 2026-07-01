@@ -9,14 +9,21 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _split_preconditions(value):
+    """The DB stores preconditions as newline-joined text; expose it as a list."""
+    if isinstance(value, str):
+        return [line for line in value.splitlines() if line.strip()]
+    return value
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # AI Pipeline Output Schemas (non-persisted)
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestCaseOut(BaseModel):
+class TestCasePipelineOut(BaseModel):
     id: str
     type: str
     title: str
@@ -38,7 +45,37 @@ class CoverageSummary(BaseModel):
 
 
 class TestGenerationResponse(BaseModel):
-    tests: List[TestCaseOut]
+    tests: List[TestCasePipelineOut]
+    coverage: CoverageSummary
+
+
+# ── Full LLM generation (manual + automation, framework-aware) ──
+class StoryGenerateRequest(BaseModel):
+    """Bare requirement the frontend posts to /api/tests/generate."""
+    jiraId: str = ""
+    title: str = Field(..., min_length=1)
+    description: str = ""
+    acceptanceCriteria: List[str] = Field(default_factory=list)
+    framework: str = "Playwright"
+
+
+class ScenarioOut(BaseModel):
+    id: str
+    title: str
+    gherkin: str
+
+
+class AutomationArtifactOut(BaseModel):
+    id: str
+    file_name: str
+    content: str
+
+
+class FullGenerationResponse(BaseModel):
+    intent: Dict[str, object] = Field(default_factory=dict)
+    tests: List[TestCasePipelineOut] = Field(default_factory=list)
+    scenarios: List[ScenarioOut] = Field(default_factory=list)
+    automation: List[AutomationArtifactOut] = Field(default_factory=list)
     coverage: CoverageSummary
 
 
@@ -47,13 +84,13 @@ class TestGenerationResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestSuiteFolderCreate(BaseModel):
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     parent_id: Optional[uuid.UUID] = None
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     sort_order: int = 0
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class TestSuiteFolderUpdate(BaseModel):
@@ -65,13 +102,13 @@ class TestSuiteFolderUpdate(BaseModel):
 
 class TestSuiteFolderOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     parent_id: Optional[uuid.UUID] = None
     name: str
     description: Optional[str] = None
     sort_order: int
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     children: List["TestSuiteFolderOut"] = Field(default_factory=list)
@@ -84,14 +121,14 @@ class TestSuiteFolderOut(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestSuiteCreate(BaseModel):
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     requirement_id: Optional[uuid.UUID] = None
     folder_id: Optional[uuid.UUID] = None
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     type: str = Field("manual", description="manual | automated | bdd")
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class TestSuiteUpdate(BaseModel):
@@ -103,14 +140,14 @@ class TestSuiteUpdate(BaseModel):
 
 class TestSuiteOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     requirement_id: Optional[uuid.UUID] = None
     folder_id: Optional[uuid.UUID] = None
     name: str
     description: Optional[str] = None
     type: str
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -149,7 +186,7 @@ class TestStepOut(BaseModel):
     description: Optional[str] = None
     test_data: Optional[dict] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -175,7 +212,7 @@ class TestCaseCreate(BaseModel):
     review_status: str = Field("pending", description="pending | approved | changes_requested")
     steps: Optional[List[TestStepCreate]] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class TestCaseUpdate(BaseModel):
@@ -194,6 +231,8 @@ class TestCaseUpdate(BaseModel):
 
 
 class TestCaseOut(BaseModel):
+    _split_pc = field_validator("preconditions", mode="before")(_split_preconditions)
+
     id: uuid.UUID
     test_suite_id: uuid.UUID
     title: str
@@ -210,7 +249,7 @@ class TestCaseOut(BaseModel):
     requirement_ids: Optional[List[uuid.UUID]] = None
     owner_id: Optional[uuid.UUID] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     steps: List[TestStepOut] = Field(default_factory=list)
@@ -269,10 +308,13 @@ class TestCaseVersionOut(BaseModel):
 class TestExecutionCreate(BaseModel):
     test_suite_id: uuid.UUID
     environment: Optional[str] = None
+    environment_id: Optional[uuid.UUID] = Field(
+        None, description="Resolved to the Environment's base_url for automated runs"
+    )
     execution_type: str = Field("manual", description="manual | automated")
     notes: Optional[str] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class TestExecutionUpdate(BaseModel):
@@ -294,9 +336,11 @@ class TestExecutionOut(BaseModel):
     duration_seconds: Optional[float] = None
     summary: Optional[dict] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Enriched for list/UI display (populated by the list-all endpoint)
+    test_suite_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -317,7 +361,7 @@ class TestCaseExecutionOut(BaseModel):
     stack_trace: Optional[str] = None
     artifacts: Optional[dict] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     step_executions: List["StepExecutionOut"] = Field(default_factory=list)
@@ -349,7 +393,7 @@ class StepExecutionOut(BaseModel):
     screenshot_url: Optional[str] = None
     duration_seconds: Optional[float] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # Enriched step details for UI display
@@ -374,7 +418,7 @@ class DefectDraftCreate(BaseModel):
     environment: Optional[str] = None
     labels: Optional[List[str]] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class DefectDraftOut(BaseModel):
@@ -389,7 +433,7 @@ class DefectDraftOut(BaseModel):
     environment: Optional[str] = None
     labels: Optional[list] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -420,7 +464,7 @@ class RequirementCoverageItem(BaseModel):
 
 
 class RequirementCoverageReport(BaseModel):
-    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     total_requirements: int
     covered_requirements: int
     coverage_percent: float
@@ -441,11 +485,16 @@ class TestCaseDBCreate(BaseModel):
     ac_category: Optional[str] = None
     preconditions: Optional[List[str]] = None
     gherkin: Optional[str] = None
+    tags: Optional[List[str]] = None
+    requirement_ids: Optional[List[uuid.UUID]] = None
+    steps: Optional[List[TestStepCreate]] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class TestCaseDBOut(BaseModel):
+    _split_pc = field_validator("preconditions", mode="before")(_split_preconditions)
+
     id: uuid.UUID
     test_suite_id: uuid.UUID
     title: str
@@ -457,8 +506,11 @@ class TestCaseDBOut(BaseModel):
     ac_category: Optional[str] = None
     preconditions: Optional[List[str]] = None
     gherkin: Optional[str] = None
+    tags: Optional[List[str]] = None
+    requirement_ids: Optional[List[uuid.UUID]] = None
+    steps: List[TestStepOut] = Field(default_factory=list)
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

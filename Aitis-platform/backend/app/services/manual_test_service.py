@@ -11,6 +11,7 @@ Provides business logic for:
 
 import csv
 import io
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,9 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.automation import AutomationScript
+from app.services.runners import RunnerCase, RunnerRequest, RunnerScript, get_runner
+from app.services.runners.simulated import SimulatedRunner
 from app.models.test import (
     DefectDraft,
     ExecutionStatus,
@@ -65,6 +69,8 @@ from app.schemas.testcase import (
     TestSuiteUpdate,
 )
 
+logger = logging.getLogger(__name__)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
@@ -101,7 +107,7 @@ async def _snapshot_test_case(db: AsyncSession, tc: TestCase, changed_by: Option
         changed_by=changed_by,
         change_summary=change_summary,
         organization_id=tc.organization_id,
-        workspace_id=tc.workspace_id,
+        project_id=tc.project_id,
     )
     db.add(snapshot)
 
@@ -122,10 +128,10 @@ async def get_folder(db: AsyncSession, folder_id: uuid.UUID) -> Optional[TestSui
     return await db.get(TestSuiteFolder, folder_id)
 
 
-async def list_folders(db: AsyncSession, project_id: uuid.UUID) -> List[TestSuiteFolder]:
+async def list_folders(db: AsyncSession, workspace_id: uuid.UUID) -> List[TestSuiteFolder]:
     result = await db.execute(
         select(TestSuiteFolder)
-        .where(TestSuiteFolder.project_id == project_id)
+        .where(TestSuiteFolder.workspace_id == workspace_id)
         .order_by(TestSuiteFolder.sort_order, TestSuiteFolder.name)
     )
     return list(result.scalars().all())
@@ -171,8 +177,8 @@ def _build_folder_tree(folders: List[TestSuiteFolder], parent_id: Optional[uuid.
     return result
 
 
-async def get_folder_tree(db: AsyncSession, project_id: uuid.UUID) -> List[TestSuiteFolderOut]:
-    folders = await list_folders(db, project_id)
+async def get_folder_tree(db: AsyncSession, workspace_id: uuid.UUID) -> List[TestSuiteFolderOut]:
+    folders = await list_folders(db, workspace_id)
     return _build_folder_tree(folders)
 
 
@@ -194,10 +200,10 @@ async def get_suite(db: AsyncSession, suite_id: uuid.UUID) -> Optional[TestSuite
 
 async def list_suites(
     db: AsyncSession,
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     folder_id: Optional[uuid.UUID] = None,
 ) -> List[TestSuite]:
-    stmt = select(TestSuite).where(TestSuite.project_id == project_id)
+    stmt = select(TestSuite).where(TestSuite.workspace_id == workspace_id)
     if folder_id is not None:
         stmt = stmt.where(TestSuite.folder_id == folder_id)
     stmt = stmt.order_by(TestSuite.name)
@@ -229,25 +235,43 @@ async def delete_suite(db: AsyncSession, suite_id: uuid.UUID) -> bool:
 # Test Cases
 # ═══════════════════════════════════════════════════════════════════════
 
+def _precond_to_text(value):
+    """The preconditions DB column is Text; the API uses a list — join on write."""
+    if isinstance(value, (list, tuple)):
+        return "\n".join(str(v) for v in value)
+    return value
+
+
+def _uuids_to_str(value):
+    """requirement_ids is a JSON column — uuid.UUID objects aren't JSON-serializable."""
+    if value is None:
+        return None
+    return [str(v) for v in value]
+
+
 async def create_test_case(db: AsyncSession, data: TestCaseCreate) -> TestCase:
-    steps_data = data.steps or []
+    # ``data`` may be a TestCaseCreate or the leaner TestCaseDBCreate, which omits
+    # several fields — read optional fields defensively so both shapes work.
+    steps_data = getattr(data, "steps", None) or []
     tc = TestCase(
         test_suite_id=data.test_suite_id,
         title=data.title,
         slug=_slugify(data.title),
-        description=data.description,
+        description=getattr(data, "description", None),
         type=data.type,
         priority=data.priority,
         status=data.status,
-        preconditions=data.preconditions,
-        gherkin=data.gherkin,
-        tags=data.tags,
-        requirement_ids=data.requirement_ids,
-        owner_id=data.owner_id,
-        review_status=data.review_status,
+        preconditions=_precond_to_text(getattr(data, "preconditions", None)),
+        gherkin=getattr(data, "gherkin", None),
+        tags=getattr(data, "tags", None),
+        requirement_ids=_uuids_to_str(getattr(data, "requirement_ids", None)),
+        owner_id=getattr(data, "owner_id", None),
+        review_status=getattr(data, "review_status", None) or "pending",
+        risk_tag=getattr(data, "risk_tag", None),
+        ac_category=getattr(data, "ac_category", None),
         version=1,
         organization_id=data.organization_id,
-        workspace_id=data.workspace_id,
+        project_id=data.project_id,
     )
     db.add(tc)
     await db.flush()
@@ -262,7 +286,7 @@ async def create_test_case(db: AsyncSession, data: TestCaseCreate) -> TestCase:
             description=step_data.description,
             test_data=step_data.test_data,
             organization_id=data.organization_id,
-            workspace_id=data.workspace_id,
+            project_id=data.project_id,
         )
         db.add(step)
 
@@ -336,6 +360,10 @@ async def update_test_case(
 
     update_data = data.model_dump(exclude_unset=True)
     update_data.pop("change_summary", None)
+    if "preconditions" in update_data:
+        update_data["preconditions"] = _precond_to_text(update_data["preconditions"])
+    if "requirement_ids" in update_data:
+        update_data["requirement_ids"] = _uuids_to_str(update_data["requirement_ids"])
 
     for key, val in update_data.items():
         setattr(tc, key, val)
@@ -378,7 +406,7 @@ async def clone_test_case(db: AsyncSession, case_id: uuid.UUID, data: TestCaseCl
         review_status="pending",
         version=1,
         organization_id=original.organization_id,
-        workspace_id=original.workspace_id,
+        project_id=original.project_id,
     )
     db.add(new_tc)
     await db.flush()
@@ -394,7 +422,7 @@ async def clone_test_case(db: AsyncSession, case_id: uuid.UUID, data: TestCaseCl
                 description=step.description,
                 test_data=step.test_data,
                 organization_id=original.organization_id,
-                workspace_id=original.workspace_id,
+                project_id=original.project_id,
             )
             db.add(new_step)
 
@@ -539,7 +567,7 @@ async def create_execution(db: AsyncSession, data: TestExecutionCreate, executed
         status="in_progress",
         started_at=_now(),
         organization_id=data.organization_id,
-        workspace_id=data.workspace_id,
+        project_id=data.project_id,
     )
     db.add(execution)
     await db.commit()
@@ -571,6 +599,31 @@ async def list_executions(
     return executions, total
 
 
+async def list_all_executions(
+    db: AsyncSession,
+    organization_id: Optional[uuid.UUID],
+    project_id: Optional[uuid.UUID],
+    status: Optional[str] = None,
+    execution_type: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> List[TestExecution]:
+    """List execution sessions for a tenant across all suites (most recent first)."""
+    stmt = select(TestExecution)
+    if organization_id is not None:
+        stmt = stmt.where(TestExecution.organization_id == organization_id)
+    if project_id is not None:
+        stmt = stmt.where(TestExecution.project_id == project_id)
+    if status:
+        stmt = stmt.where(TestExecution.status == status)
+    if execution_type:
+        stmt = stmt.where(TestExecution.execution_type == execution_type)
+
+    stmt = stmt.order_by(TestExecution.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def update_execution(db: AsyncSession, execution_id: uuid.UUID, data: TestExecutionUpdate) -> Optional[TestExecution]:
     execution = await db.get(TestExecution, execution_id)
     if not execution:
@@ -599,22 +652,112 @@ async def complete_execution(db: AsyncSession, execution_id: uuid.UUID) -> Optio
     failed = sum(1 for ce in case_executions if ce.status == "failed")
     blocked = sum(1 for ce in case_executions if ce.status == "blocked")
     skipped = sum(1 for ce in case_executions if ce.status == "skipped")
+    errors = sum(1 for ce in case_executions if ce.status == "error")
 
-    execution.status = "completed" if failed == 0 else "failed"
+    execution.status = "completed" if (failed == 0 and errors == 0) else "failed"
     execution.finished_at = _now()
     if execution.started_at:
-        execution.duration_seconds = (execution.finished_at - execution.started_at).total_seconds()
+        started = execution.started_at
+        finished = execution.finished_at
+        # SQLite returns naive datetimes; _now() is tz-aware — normalize before subtracting
+        if (started.tzinfo is None) != (finished.tzinfo is None):
+            started = started.replace(tzinfo=None)
+            finished = finished.replace(tzinfo=None)
+        execution.duration_seconds = (finished - started).total_seconds()
     execution.summary = {
+        **(execution.summary or {}),
         "total": total,
         "passed": passed,
         "failed": failed,
         "blocked": blocked,
         "skipped": skipped,
+        "errors": errors,
     }
 
     await db.commit()
     await db.refresh(execution)
     return execution
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Automated execution — links saved automation scripts to a run
+# ═══════════════════════════════════════════════════════════════════════
+
+async def run_automated_execution(
+    db: AsyncSession, execution: TestExecution, base_url: Optional[str] = None
+) -> None:
+    """Resolve the suite's test cases + their linked automation scripts, hand them to the
+    configured runner (`settings.execution_runner`), and persist per-case results.
+
+    The runner is pluggable (simulated by default, container runner is a stub). Runner
+    failures fall back to the simulated runner so a run never errors out. ``base_url``,
+    when provided, is the System Under Test's target URL (resolved from the workspace's
+    configured Environment) — the simulated runner uses it to perform a real reachability
+    check rather than fabricating results in a vacuum.
+    """
+    tc_result = await db.execute(
+        select(TestCase).where(TestCase.test_suite_id == execution.test_suite_id)
+    )
+    test_cases = list(tc_result.scalars().all())
+    case_ids = [tc.id for tc in test_cases]
+
+    scripts_by_case: Dict[uuid.UUID, List[AutomationScript]] = {}
+    if case_ids:
+        s_result = await db.execute(
+            select(AutomationScript).where(AutomationScript.test_case_id.in_(case_ids))
+        )
+        for script in s_result.scalars().all():
+            scripts_by_case.setdefault(script.test_case_id, []).append(script)
+
+    # Build a DB-agnostic request for the runner
+    request = RunnerRequest(
+        execution_id=str(execution.id),
+        environment=execution.environment,
+        base_url=base_url,
+        cases=[
+            RunnerCase(
+                test_case_id=str(tc.id),
+                title=tc.title,
+                scripts=[
+                    RunnerScript(
+                        name=s.name,
+                        framework=s.framework,
+                        language=s.language,
+                        code=s.code,
+                        file_path=s.file_path,
+                    )
+                    for s in scripts_by_case.get(tc.id, [])
+                ],
+            )
+            for tc in test_cases
+        ],
+    )
+
+    runner = get_runner()
+    try:
+        result = await runner.run(request)
+    except Exception as exc:  # noqa: BLE001 — never fail a run on a runner error
+        logger.warning("Runner '%s' failed (%s); falling back to simulated runner", runner.name, exc)
+        result = await SimulatedRunner().run(request)
+
+    now = _now()
+    for cr in result.case_results:
+        db.add(
+            TestCaseExecution(
+                execution_id=execution.id,
+                test_case_id=uuid.UUID(cr.test_case_id),
+                status=cr.status,
+                started_at=now,
+                finished_at=now,
+                duration_seconds=cr.duration_seconds,
+                error_message=cr.error_message,
+                artifacts=cr.artifacts,
+                organization_id=execution.organization_id,
+                project_id=execution.project_id,
+            )
+        )
+
+    await db.commit()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -646,7 +789,7 @@ async def get_or_create_case_execution(
         status="in_progress",
         started_at=_now(),
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(ce)
     await db.commit()
@@ -769,7 +912,7 @@ async def create_case_executions(
                 status="in_progress",
                 started_at=_now(),
                 organization_id=execution.organization_id,
-                workspace_id=execution.workspace_id,
+                project_id=execution.project_id,
             )
             db.add(ce)
             await db.flush()
@@ -782,7 +925,7 @@ async def create_case_executions(
                         step_id=step.id,
                         status="pending",
                         organization_id=execution.organization_id,
-                        workspace_id=execution.workspace_id,
+                        project_id=execution.project_id,
                     )
                     db.add(se)
 
@@ -848,7 +991,7 @@ async def create_defect_draft(db: AsyncSession, data: DefectDraftCreate) -> Defe
         environment=data.environment,
         labels=data.labels,
         organization_id=data.organization_id,
-        workspace_id=data.workspace_id,
+        project_id=data.project_id,
     )
     db.add(defect)
     await db.commit()
@@ -936,7 +1079,7 @@ async def import_test_cases_csv(
                 version=1,
                 review_status="pending",
                 organization_id=org_id,
-                workspace_id=ws_id,
+                project_id=ws_id,
             )
             db.add(tc)
             result.imported += 1
@@ -953,13 +1096,13 @@ async def import_test_cases_csv(
 # Requirement Coverage
 # ═══════════════════════════════════════════════════════════════════════
 
-async def get_requirement_coverage(db: AsyncSession, project_id: uuid.UUID) -> RequirementCoverageReport:
-    """Calculate requirement coverage for a project."""
-    # Get all test cases in the project (via suites)
+async def get_requirement_coverage(db: AsyncSession, workspace_id: uuid.UUID) -> RequirementCoverageReport:
+    """Calculate requirement coverage for a workspace."""
+    # Get all test cases in the workspace (via suites)
     result = await db.execute(
         select(TestCase)
         .join(TestSuite, TestCase.test_suite_id == TestSuite.id)
-        .where(TestSuite.project_id == project_id)
+        .where(TestSuite.workspace_id == workspace_id)
     )
     cases = list(result.scalars().all())
 
@@ -975,10 +1118,10 @@ async def get_requirement_coverage(db: AsyncSession, project_id: uuid.UUID) -> R
                     req_map[rid_str] = []
                 req_map[rid_str].append(tc.id)
 
-    # Get all requirements for the project (from test suites)
+    # Get all requirements for the workspace (from test suites)
     result = await db.execute(
         select(TestSuite.requirement_id).where(
-            and_(TestSuite.project_id == project_id, TestSuite.requirement_id.isnot(None))
+            and_(TestSuite.workspace_id == workspace_id, TestSuite.requirement_id.isnot(None))
         ).distinct()
     )
     all_req_ids = [row[0] for row in result.all() if row[0]]
@@ -1001,7 +1144,7 @@ async def get_requirement_coverage(db: AsyncSession, project_id: uuid.UUID) -> R
     coverage_pct = (covered / total * 100) if total > 0 else 0.0
 
     return RequirementCoverageReport(
-        project_id=project_id,
+        workspace_id=workspace_id,
         total_requirements=total,
         covered_requirements=covered,
         coverage_percent=round(coverage_pct, 1),

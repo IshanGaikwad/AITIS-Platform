@@ -1,11 +1,11 @@
-﻿"""Organization and Workspace models â€” multi-tenancy foundation."""
+﻿"""Organization and Project models â€” multi-tenancy foundation."""
 
 import uuid
 from typing import Optional
 from enum import Enum
 
 from sqlalchemy import String, ForeignKey, UniqueConstraint, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,7 +34,7 @@ class Organization(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     memberships = relationship("OrganizationMembership", back_populates="organization", lazy="selectin")
-    workspaces = relationship("Workspace", back_populates="organization", lazy="selectin")
+    projects = relationship("Project", back_populates="organization", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Organization {self.slug}>"
@@ -48,10 +48,10 @@ class OrganizationMembership(Base, UUIDMixin, TimestampMixin):
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(50), nullable=False, default=Role.viewer.value)
 
@@ -63,51 +63,51 @@ class OrganizationMembership(Base, UUIDMixin, TimestampMixin):
         return f"<OrgMembership user={self.user_id} org={self.organization_id} role={self.role}>"
 
 
-# â”€â”€ Workspace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-class Workspace(Base, UUIDMixin, TimestampMixin):
-    __tablename__ = "workspaces"
+# â”€â”€ Project â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+class Project(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "projects"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), nullable=False)
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     description: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "slug", name="uq_org_workspace_slug"),
-        Index("ix_workspace_org_id", "organization_id"),
+        UniqueConstraint("organization_id", "slug", name="uq_org_project_slug"),
+        Index("ix_project_org_id", "organization_id"),
     )
 
     # Relationships
-    organization = relationship("Organization", back_populates="workspaces")
-    memberships = relationship("WorkspaceMembership", back_populates="workspace", lazy="selectin")
-    projects = relationship("Project", back_populates="workspace", lazy="selectin")
+    organization = relationship("Organization", back_populates="projects")
+    memberships = relationship("ProjectMembership", back_populates="project", lazy="selectin")
+    workspaces = relationship("Workspace", back_populates="project", lazy="selectin")
 
     def __repr__(self) -> str:
-        return f"<Workspace {self.slug}>"
+        return f"<Project {self.slug}>"
 
 
-class WorkspaceMembership(Base, UUIDMixin, TimestampMixin):
-    __tablename__ = "workspace_memberships"
+class ProjectMembership(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "project_memberships"
     __table_args__ = (
-        UniqueConstraint("user_id", "workspace_id", name="uq_user_workspace"),
-        Index("ix_ws_members_ws_id", "workspace_id"),
+        UniqueConstraint("user_id", "project_id", name="uq_user_project"),
+        Index("ix_ws_members_ws_id", "project_id"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(50), nullable=False, default=Role.viewer.value)
 
     # Relationships
-    user = relationship("User", back_populates="workspace_memberships")
-    workspace = relationship("Workspace", back_populates="memberships")
+    user = relationship("User", back_populates="project_memberships")
+    project = relationship("Project", back_populates="memberships")
 
     def __repr__(self) -> str:
-        return f"<WsMembership user={self.user_id} ws={self.workspace_id} role={self.role}>"
+        return f"<WsMembership user={self.user_id} ws={self.project_id} role={self.role}>"
 

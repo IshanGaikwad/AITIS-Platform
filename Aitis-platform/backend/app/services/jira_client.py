@@ -43,8 +43,8 @@ class JiraClient:
             "Accept": "application/json",
         }
 
-    async def get_projects(self) -> list[dict[str, Any]]:
-        url = f"{self.base_url}/rest/api/3/project"
+    async def get_workspaces(self) -> list[dict[str, Any]]:
+        url = f"{self.base_url}/rest/api/3/workspace"
         client = await get_http_client()
         response = await client.get(url, headers=self.headers)
         response.raise_for_status()

@@ -18,16 +18,16 @@ from app.schemas.requirement import RequirementCreate, RequirementUpdate
 async def list_requirements(
     db: AsyncSession,
     organization_id: Optional[uuid.UUID] = None,
-    workspace_id: Optional[uuid.UUID] = None,
     project_id: Optional[uuid.UUID] = None,
+    workspace_id: Optional[uuid.UUID] = None,
 ) -> List[Requirement]:
     stmt = select(Requirement).order_by(Requirement.created_at.desc())
     if organization_id:
         stmt = stmt.where(Requirement.organization_id == organization_id)
-    if workspace_id:
-        stmt = stmt.where(Requirement.workspace_id == workspace_id)
     if project_id:
         stmt = stmt.where(Requirement.project_id == project_id)
+    if workspace_id:
+        stmt = stmt.where(Requirement.workspace_id == workspace_id)
     result = await db.execute(stmt.options(selectinload(Requirement.acceptance_criteria)))
     return list(result.scalars().all())
 
@@ -43,7 +43,7 @@ async def get_requirement(db: AsyncSession, requirement_id: uuid.UUID) -> Option
 
 async def create_requirement(db: AsyncSession, payload: RequirementCreate) -> Requirement:
     req = Requirement(
-        project_id=payload.project_id,
+        workspace_id=payload.workspace_id,
         external_id=payload.jiraId,
         title=payload.title,
         description=payload.description,
@@ -52,7 +52,7 @@ async def create_requirement(db: AsyncSession, payload: RequirementCreate) -> Re
         status="draft",
         source=payload.source or "manual",
         organization_id=payload.organization_id,
-        workspace_id=payload.workspace_id,
+        project_id=payload.project_id,
     )
     db.add(req)
     await db.flush()
@@ -65,7 +65,7 @@ async def create_requirement(db: AsyncSession, payload: RequirementCreate) -> Re
             category="positive",
             order=idx,
             organization_id=payload.organization_id,
-            workspace_id=payload.workspace_id,
+            project_id=payload.project_id,
         )
         db.add(ac)
 
@@ -96,7 +96,7 @@ async def update_requirement(
                     category="positive",
                     order=idx,
                     organization_id=req.organization_id,
-                    workspace_id=req.workspace_id,
+                    project_id=req.project_id,
                 )
                 db.add(ac)
         elif hasattr(req, field):

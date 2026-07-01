@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
-from app.models.tenant import OrganizationMembership, Role, WorkspaceMembership
+from app.models.tenant import OrganizationMembership, Role, ProjectMembership
 from app.models.user import User
 
 # ── Password hashing ────────────────────────────────────────────────
@@ -36,7 +36,7 @@ def create_access_token(
     data: dict,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    """Create JWT access token with org/workspace/role claims."""
+    """Create JWT access token with org/project/role claims."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
@@ -62,7 +62,7 @@ def create_tokens_for_user(
     user_id: str,
     org_id: str | None = None,
     organization_id: str | None = None,
-    workspace_id: str | None = None,
+    project_id: str | None = None,
     role: str | None = None,
     email: str = "",
     name: str = "",
@@ -82,8 +82,8 @@ def create_tokens_for_user(
     if tenant_org_id:
         token_data["organization_id"] = tenant_org_id
         token_data["org_id"] = tenant_org_id
-    if workspace_id:
-        token_data["workspace_id"] = workspace_id
+    if project_id:
+        token_data["project_id"] = project_id
     if role:
         token_data["role"] = role
 
@@ -148,26 +148,26 @@ async def require_organization_access(
     return membership
 
 
-async def require_workspace_access(
+async def require_project_access(
     db: AsyncSession,
     payload: dict,
-    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
     allowed_roles: tuple | list | None = None,
-) -> WorkspaceMembership:
-    """Ensure the current user belongs to a workspace, optionally by role."""
+) -> ProjectMembership:
+    """Ensure the current user belongs to a project, optionally by role."""
     user_id = claim_uuid(payload, "user_id", "sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user claim")
 
     result = await db.execute(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.user_id == user_id,
-            WorkspaceMembership.workspace_id == workspace_id,
+        select(ProjectMembership).where(
+            ProjectMembership.user_id == user_id,
+            ProjectMembership.project_id == project_id,
         )
     )
     membership = result.scalar_one_or_none()
     if not membership:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace access denied")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied")
 
     if allowed_roles:
         allowed = {_role_value(role) for role in allowed_roles}
@@ -178,17 +178,17 @@ async def require_workspace_access(
 
 def enforce_tenant_claims(
     resource_org_id: uuid.UUID | None,
-    resource_workspace_id: uuid.UUID | None,
+    resource_project_id: uuid.UUID | None,
     payload: dict,
 ) -> None:
     """Raise 403 when a resource does not match the active tenant claims."""
     request_org_id = claim_uuid(payload, "organization_id", "org_id")
-    request_workspace_id = claim_uuid(payload, "workspace_id")
+    request_project_id = claim_uuid(payload, "project_id")
 
     if resource_org_id and request_org_id != resource_org_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
-    if resource_workspace_id and request_workspace_id != resource_workspace_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace access denied")
+    if resource_project_id and request_project_id != resource_project_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied")
 
 
 async def get_current_user(
@@ -232,6 +232,16 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
+
+    # Convert UUID string claims to uuid.UUID objects so SQLAlchemy Uuid columns work
+    for key in ("user_id", "sub", "organization_id", "org_id", "project_id"):
+        val = payload.get(key)
+        if val and isinstance(val, str):
+            try:
+                payload[key] = uuid.UUID(val)
+            except (TypeError, ValueError):
+                pass
+
     return payload
 
 
@@ -259,13 +269,13 @@ def require_role(*allowed_roles):
     return _check_role
 
 
-async def require_workspace_member(
+async def require_project_member(
     payload: dict = Depends(get_current_user),
 ) -> dict:
-    """Dependency — ensures the JWT contains a workspace_id claim."""
-    if not payload.get("workspace_id"):
+    """Dependency — ensures the JWT contains a project_id claim."""
+    if not payload.get("project_id"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace context required — select a workspace first",
+            detail="Project context required — select a project first",
         )
     return payload

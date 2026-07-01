@@ -6,7 +6,7 @@ from enum import Enum
 from datetime import datetime
 
 from sqlalchemy import String, Text, ForeignKey, Integer, Float, Boolean, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -71,14 +71,14 @@ class TestSuiteFolder(Base, UUIDMixin, TimestampMixin, TenantMixin):
     __tablename__ = "test_suite_folders"
     __table_args__ = (
         Index("ix_tsf_parent_id", "parent_id"),
-        Index("ix_tsf_project_id", "project_id"),
+        Index("ix_tsf_workspace_id", "workspace_id"),
     )
 
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_suite_folders.id", ondelete="CASCADE"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("test_suite_folders.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -103,26 +103,26 @@ class TestSuiteFolder(Base, UUIDMixin, TimestampMixin, TenantMixin):
 class TestSuite(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     __tablename__ = "test_suites"
     __table_args__ = (
-        Index("ix_suite_project_id", "project_id"),
+        Index("ix_suite_workspace_id", "workspace_id"),
         Index("ix_suite_requirement_id", "requirement_id"),
         Index("ix_suite_folder_id", "folder_id"),
     )
 
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     requirement_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("requirements.id", ondelete="SET NULL"), nullable=True, index=True
     )
     folder_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_suite_folders.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("test_suite_folders.id", ondelete="SET NULL"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     type: Mapped[str] = mapped_column(String(20), default=TestType.automated.value)
 
     # Relationships
-    project = relationship("Project", back_populates="test_suites")
+    workspace = relationship("Workspace", back_populates="test_suites")
     requirement = relationship("Requirement", back_populates="test_suites")
     folder = relationship("TestSuiteFolder", back_populates="test_suites")
     test_cases = relationship(
@@ -143,7 +143,7 @@ class TestCase(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     )
 
     test_suite_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_suites.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_suites.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     slug: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -157,7 +157,7 @@ class TestCase(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     )
     # Phase 2 â€” ownership
     owner_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Phase 2 â€” tags (free-form list stored as JSON)
     tags: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
@@ -170,7 +170,7 @@ class TestCase(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     preconditions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     gherkin: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     automation_script_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships
@@ -204,7 +204,7 @@ class TestCaseVersion(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     test_case_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -219,7 +219,7 @@ class TestCaseVersion(Base, UUIDMixin, TimestampMixin, TenantMixin):
     # Snapshot of steps at this version
     steps_snapshot: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     change_summary: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
@@ -238,7 +238,7 @@ class TestStep(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     test_case_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
     )
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     type: Mapped[str] = mapped_column(String(20), default=StepType.action.value)
@@ -263,7 +263,7 @@ class TestExecution(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     test_suite_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_suites.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_suites.id", ondelete="CASCADE"), nullable=False, index=True
     )
     environment: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     # Phase 2 â€” execution type discriminator
@@ -273,7 +273,7 @@ class TestExecution(Base, UUIDMixin, TimestampMixin, TenantMixin):
     status: Mapped[str] = mapped_column(String(20), default=ExecutionStatus.pending.value)
     # Phase 2 â€” who executed this run
     executed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Phase 2 â€” free-form notes about the execution session
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -294,10 +294,10 @@ class TestCaseExecution(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     execution_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_executions.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_executions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     test_case_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
     )
     status: Mapped[str] = mapped_column(String(20), default=ExecutionStatus.pending.value)
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
@@ -321,10 +321,10 @@ class StepExecution(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     case_execution_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     step_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_steps.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("test_steps.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(20), default=ExecutionStatus.pending.value)
     actual_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -349,7 +349,7 @@ class DefectDraft(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     case_execution_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)

@@ -111,16 +111,16 @@ class ContainerManager:
         Security: environment_vars should already be sanitized via
         sanitize_environment_vars() before being passed here.
         """
-        # Prepare workspace directory
-        workspace = Path(self.artifacts_dir) / job_id
-        workspace.mkdir(parents=True, exist_ok=True)
+        # Prepare project directory
+        project = Path(self.artifacts_dir) / job_id
+        project.mkdir(parents=True, exist_ok=True)
 
-        # Write the test script into the workspace
-        spec_file = workspace / "test.spec.ts"
+        # Write the test script into the project
+        spec_file = project / "test.spec.ts"
         spec_file.write_text(script_code, encoding="utf-8")
 
         # Write a runner script
-        runner = workspace / "run.sh"
+        runner = project / "run.sh"
         runner.write_text(
             _generate_runner_script(spec_file.name, browser, headless, base_url, timeout_seconds),
             encoding="utf-8",
@@ -171,15 +171,15 @@ class ContainerManager:
                 None,
                 lambda: self.client.containers.run(
                     image=self.image,
-                    command=f"bash /workspace/run.sh",
+                    command=f"bash /project/run.sh",
                     detach=True,
                     name=f"aitis-exec-{job_id[:12]}",
                     environment=env,
                     labels=labels,
                     mounts=[
                         docker.types.Mount(
-                            target="/workspace",
-                            source=str(workspace),
+                            target="/project",
+                            source=str(project),
                             type="bind",
                         ),
                     ],
@@ -221,7 +221,7 @@ class ContainerManager:
                 stderr_logs = ""
 
             # Collect artifacts (screenshots, traces, etc.)
-            artifacts = self._collect_artifacts(workspace, job_id)
+            artifacts = self._collect_artifacts(project, job_id)
 
             # Remove container
             try:
@@ -258,27 +258,27 @@ class ContainerManager:
             logger.info("Pulling Docker image: %s ...", self.image)
             self.client.images.pull(self.image)
 
-    def _collect_artifacts(self, workspace: Path, job_id: str) -> list[dict]:
-        """Collect artifacts from the container workspace."""
+    def _collect_artifacts(self, project: Path, job_id: str) -> list[dict]:
+        """Collect artifacts from the container project."""
         artifacts = []
-        artifacts_dir = workspace / "artifacts"
+        artifacts_dir = project / "artifacts"
         if artifacts_dir.exists():
             for f in artifacts_dir.rglob("*"):
                 if f.is_file():
                     artifacts.append({
                         "name": f.name,
-                        "path": str(f.relative_to(workspace)),
+                        "path": str(f.relative_to(project)),
                         "size": f.stat().st_size,
                         "job_id": job_id,
                     })
         # Also check for test-results directory (Playwright default output)
-        results_dir = workspace / "test-results"
+        results_dir = project / "test-results"
         if results_dir.exists():
             for f in results_dir.rglob("*"):
                 if f.is_file():
                     artifacts.append({
                         "name": f.name,
-                        "path": str(f.relative_to(workspace)),
+                        "path": str(f.relative_to(project)),
                         "size": f.stat().st_size,
                         "job_id": job_id,
                     })
@@ -324,22 +324,22 @@ export BROWSER="{browser}"
 export TIMEOUT="{timeout_seconds}"
 
 # Install dependencies and run
-cd /workspace
+cd /project
 
 # Run Playwright test
 npx playwright test {spec_file} \\
-    --project={browser} \\
+    --workspace={browser} \\
     {headless_flag} \\
     --timeout={timeout_seconds}000 \\
     --reporter=json,list \\
-    --output=/workspace/artifacts/ \\
-    2>&1 | tee /workspace/artifacts/test-output.log
+    --output=/project/artifacts/ \\
+    2>&1 | tee /project/artifacts/test-output.log
 
 EXIT_CODE=${{PIPESTATUS[0]}}
 
 # Copy Playwright artifacts
 if [ -d "test-results" ]; then
-    cp -r test-results/* /workspace/artifacts/ 2>/dev/null || true
+    cp -r test-results/* /project/artifacts/ 2>/dev/null || true
 fi
 
 exit $EXIT_CODE
@@ -396,7 +396,7 @@ async def write_results(
         stderr=stderr[:50000] if stderr else None,
         result_json=step_results.get("report_json"),
         organization_id=job.organization_id,
-        workspace_id=job.workspace_id,
+        project_id=job.project_id,
     )
     session.add(exec_result)
     await session.flush()  # Get the result ID
@@ -413,7 +413,7 @@ async def write_results(
             actual_result=step.get("expected"),
             screenshot_url=step.get("screenshot"),
             organization_id=job.organization_id,
-            workspace_id=job.workspace_id,
+            project_id=job.project_id,
         )
         session.add(step_result)
 
@@ -583,7 +583,7 @@ class ExecutionWorker:
                 job_id=job_id,
                 script_id=job.script_id,
                 organization_id=job.organization_id,
-                workspace_id=job.workspace_id,
+                project_id=job.project_id,
                 actor_type="worker",
                 details={"worker_id": self.worker_id},
             ))
@@ -616,7 +616,7 @@ class ExecutionWorker:
                     event_type=AuditEventType.job_cancelled,
                     job_id=job_id,
                     organization_id=job.organization_id,
-                    workspace_id=job.workspace_id,
+                    project_id=job.project_id,
                     actor_type="worker",
                 ))
                 logger.info("Job %s was cancelled before execution", job_id)
@@ -630,7 +630,7 @@ class ExecutionWorker:
                 script_id=job.script_id,
                 script_version_id=script_version_id,
                 organization_id=job.organization_id,
-                workspace_id=job.workspace_id,
+                project_id=job.project_id,
                 actor_type="worker",
                 details={"is_valid": validation.is_valid, "errors": validation.errors, "warnings": validation.warnings},
             ))
@@ -656,16 +656,16 @@ class ExecutionWorker:
                 script = script_result.scalar_one_or_none()
                 if script and not verify_tenant_access(
                     resource_org_id=script.organization_id or uuid.UUID(int=0),
-                    resource_ws_id=script.workspace_id,
+                    resource_ws_id=script.project_id,
                     request_org_id=job.organization_id,
-                    request_ws_id=job.workspace_id,
+                    request_ws_id=job.project_id,
                 ):
                     logger.error("Tenant isolation violation: job %s org=%s ws=%s accessing script org=%s ws=%s",
-                                job_id, job.organization_id, job.workspace_id,
-                                script.organization_id, script.workspace_id)
+                                job_id, job.organization_id, job.project_id,
+                                script.organization_id, script.project_id)
                     job.status = ExecutionJobStatus.failed.value
                     job.finished_at = datetime.now(timezone.utc)
-                    job.error_message = "Tenant isolation violation — script does not belong to this organization/workspace"
+                    job.error_message = "Tenant isolation violation — script does not belong to this organization/project"
                     await session.commit()
                     await self.queue.update_job_status(job_id, "failed", {"error": job.error_message})
                     await self._publish_job_update(job_id, "status", {
@@ -679,14 +679,14 @@ class ExecutionWorker:
             exec_token = create_execution_token(
                 job_id=job_id,
                 organization_id=job.organization_id,
-                workspace_id=job.workspace_id,
+                project_id=job.project_id,
                 expires_minutes=max(job.timeout_seconds or settings.execution_timeout_default // 60, 10),
             )
             record_audit_event(AuditEvent(
                 event_type=AuditEventType.token_created,
                 job_id=job_id,
                 organization_id=job.organization_id,
-                workspace_id=job.workspace_id,
+                project_id=job.project_id,
                 actor_type="worker",
                 details={"token_type": "execution:job_submit"},
             ))
@@ -747,7 +747,7 @@ class ExecutionWorker:
                 job_id=job_id,
                 script_id=job.script_id,
                 organization_id=job.organization_id,
-                workspace_id=job.workspace_id,
+                project_id=job.project_id,
                 actor_type="worker",
                 details={
                     "status": final_status,
