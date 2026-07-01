@@ -6,7 +6,7 @@ from typing import Optional
 from enum import Enum
 
 from sqlalchemy import String, Text, ForeignKey, Integer, Float, Index, DateTime
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -62,15 +62,15 @@ class ExecutionArtifact(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     case_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Phase 4 â€” link to automation execution job
     execution_job_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("execution_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("execution_jobs.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Phase 4 â€” link to specific execution result within a job
     execution_result_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("execution_results.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("execution_results.id", ondelete="SET NULL"), nullable=True, index=True
     )
     artifact_type: Mapped[str] = mapped_column(String(20), default=ArtifactType.screenshot.value)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -88,14 +88,14 @@ class ExecutionArtifact(Base, UUIDMixin, TimestampMixin, TenantMixin):
 class Defect(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     __tablename__ = "defects"
     __table_args__ = (
-        Index("ix_defect_project_id", "project_id"),
+        Index("ix_defect_workspace_id", "workspace_id"),
     )
 
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     case_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("test_case_executions.id", ondelete="SET NULL"), nullable=True
     )
     external_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Jira key
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -107,21 +107,21 @@ class Defect(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     labels: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
 
     # Relationships
-    project = relationship("Project", back_populates="defects")
+    workspace = relationship("Workspace", back_populates="defects")
 
 
 # â”€â”€ Healing Proposal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class HealingProposal(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     __tablename__ = "healing_proposals"
     __table_args__ = (
-        Index("ix_heal_workspace", "workspace_id"),
+        Index("ix_heal_project", "project_id"),
     )
 
     locator_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("locators.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("locators.id", ondelete="SET NULL"), nullable=True
     )
     script_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), default=HealingStatus.proposed.value)
     original_code: Mapped[str] = mapped_column(Text, nullable=False)

@@ -1,6 +1,6 @@
 """Dashboard API — aggregated metrics, trends, and release readiness.
 
-Phase 6: Provides project-level dashboards with test execution trends,
+Phase 6: Provides workspace-level dashboards with test execution trends,
 defect burndown, coverage metrics, and release readiness scoring.
 """
 
@@ -27,7 +27,7 @@ from pydantic import BaseModel
 
 
 class DashboardMetrics(BaseModel):
-    """Top-level dashboard metrics for a project."""
+    """Top-level dashboard metrics for a workspace."""
     total_requirements: int = 0
     total_test_cases: int = 0
     total_automation_scripts: int = 0
@@ -80,28 +80,28 @@ class DashboardResponse(BaseModel):
 # Endpoints
 # ══════════════════════════════════════════════════════════════════════
 
-@router.get("/{project_id}", response_model=DashboardResponse)
+@router.get("/{workspace_id}", response_model=DashboardResponse)
 async def get_dashboard(
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     days: int = Query(30, ge=7, le=365, description="Trend window in days"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get full dashboard for a project."""
+    """Get full dashboard for a workspace."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     # ── Metrics ────────────────────────────────────────────────────
-    metrics = await _compute_metrics(db, project_id, org_id, ws_id)
+    metrics = await _compute_metrics(db, workspace_id, org_id, ws_id)
 
     # ── Execution trends ───────────────────────────────────────────
-    trends = await _compute_execution_trends(db, project_id, org_id, ws_id, days)
+    trends = await _compute_execution_trends(db, workspace_id, org_id, ws_id, days)
 
     # ── Defect burndown ────────────────────────────────────────────
-    burndown = await _compute_defect_burndown(db, project_id, org_id, ws_id, days)
+    burndown = await _compute_defect_burndown(db, workspace_id, org_id, ws_id, days)
 
     # ── Release readiness ──────────────────────────────────────────
-    readiness = await _compute_release_readiness(db, project_id, org_id, ws_id, metrics)
+    readiness = await _compute_release_readiness(db, workspace_id, org_id, ws_id, metrics)
 
     return DashboardResponse(
         metrics=metrics,
@@ -111,30 +111,30 @@ async def get_dashboard(
     )
 
 
-@router.get("/{project_id}/release-readiness", response_model=ReleaseReadiness)
+@router.get("/{workspace_id}/release-readiness", response_model=ReleaseReadiness)
 async def get_release_readiness(
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get release readiness assessment for a project."""
+    """Get release readiness assessment for a workspace."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
-    metrics = await _compute_metrics(db, project_id, org_id, ws_id)
-    return await _compute_release_readiness(db, project_id, org_id, ws_id, metrics)
+    ws_id = current_user.get("project_id")
+    metrics = await _compute_metrics(db, workspace_id, org_id, ws_id)
+    return await _compute_release_readiness(db, workspace_id, org_id, ws_id, metrics)
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
 
-async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_id) -> DashboardMetrics:
+async def _compute_metrics(db: AsyncSession, workspace_id: uuid.UUID, org_id, ws_id) -> DashboardMetrics:
     """Compute top-level dashboard metrics."""
 
     # Requirements count
     req_result = await db.execute(
         select(func.count()).select_from(Requirement).where(
-            Requirement.project_id == project_id,
+            Requirement.workspace_id == workspace_id,
             Requirement.organization_id == org_id,
-            Requirement.workspace_id == ws_id,
+            Requirement.project_id == ws_id,
         )
     )
     total_reqs = req_result.scalar() or 0
@@ -143,7 +143,7 @@ async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_i
     tc_result = await db.execute(
         select(func.count()).select_from(TestCase).where(
             TestCase.organization_id == org_id,
-            TestCase.workspace_id == ws_id,
+            TestCase.project_id == ws_id,
         )
     )
     total_tcs = tc_result.scalar() or 0
@@ -152,16 +152,16 @@ async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_i
     auto_result = await db.execute(
         select(func.count()).select_from(AutomationScript).where(
             AutomationScript.organization_id == org_id,
-            AutomationScript.workspace_id == ws_id,
+            AutomationScript.project_id == ws_id,
         )
     )
     total_auto = auto_result.scalar() or 0
 
     # Defects
     defect_base = select(Defect).where(
-        Defect.project_id == project_id,
+        Defect.workspace_id == workspace_id,
         Defect.organization_id == org_id,
-        Defect.workspace_id == ws_id,
+        Defect.project_id == ws_id,
     )
     total_defects_result = await db.execute(
         select(func.count()).select_from(defect_base.subquery())
@@ -190,7 +190,7 @@ async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_i
         select(TestExecution)
         .where(
             TestExecution.organization_id == org_id,
-            TestExecution.workspace_id == ws_id,
+            TestExecution.project_id == ws_id,
         )
         .order_by(TestExecution.created_at.desc())
         .limit(1)
@@ -209,9 +209,9 @@ async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_i
         select(func.count(func.distinct(Requirement.id)))
         .select_from(Requirement)
         .where(
-            Requirement.project_id == project_id,
+            Requirement.workspace_id == workspace_id,
             Requirement.organization_id == org_id,
-            Requirement.workspace_id == ws_id,
+            Requirement.project_id == ws_id,
         )
     )
     covered = 0
@@ -223,7 +223,7 @@ async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_i
             .where(
                 TestSuite.requirement_id.isnot(None),
                 TestSuite.organization_id == org_id,
-                TestSuite.workspace_id == ws_id,
+                TestSuite.project_id == ws_id,
             )
         )
         covered = suite_result.scalar() or 0
@@ -245,7 +245,7 @@ async def _compute_metrics(db: AsyncSession, project_id: uuid.UUID, org_id, ws_i
 
 
 async def _compute_execution_trends(
-    db: AsyncSession, project_id: uuid.UUID, org_id, ws_id, days: int
+    db: AsyncSession, workspace_id: uuid.UUID, org_id, ws_id, days: int
 ) -> List[ExecutionTrend]:
     """Compute daily execution trends."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -255,7 +255,7 @@ async def _compute_execution_trends(
         select(TestExecution)
         .where(
             TestExecution.organization_id == org_id,
-            TestExecution.workspace_id == ws_id,
+            TestExecution.project_id == ws_id,
             TestExecution.created_at >= cutoff,
         )
         .order_by(TestExecution.created_at)
@@ -291,7 +291,7 @@ async def _compute_execution_trends(
 
 
 async def _compute_defect_burndown(
-    db: AsyncSession, project_id: uuid.UUID, org_id, ws_id, days: int
+    db: AsyncSession, workspace_id: uuid.UUID, org_id, ws_id, days: int
 ) -> List[DefectBurndown]:
     """Compute weekly defect burndown."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -299,9 +299,9 @@ async def _compute_defect_burndown(
     result = await db.execute(
         select(Defect)
         .where(
-            Defect.project_id == project_id,
+            Defect.workspace_id == workspace_id,
             Defect.organization_id == org_id,
-            Defect.workspace_id == ws_id,
+            Defect.project_id == ws_id,
         )
         .order_by(Defect.created_at)
     )
@@ -337,7 +337,7 @@ async def _compute_defect_burndown(
 
 
 async def _compute_release_readiness(
-    db: AsyncSession, project_id: uuid.UUID, org_id, ws_id, metrics: DashboardMetrics
+    db: AsyncSession, workspace_id: uuid.UUID, org_id, ws_id, metrics: DashboardMetrics
 ) -> ReleaseReadiness:
     """Compute release readiness score and recommendations."""
     recommendations: List[str] = []

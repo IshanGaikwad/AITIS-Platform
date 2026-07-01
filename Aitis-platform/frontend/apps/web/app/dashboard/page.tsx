@@ -21,7 +21,7 @@ import {
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
-  getProjects,
+  getWorkspaces,
   getDashboard,
   getReleaseReadiness,
   getDefectSummary,
@@ -30,7 +30,7 @@ import type {
   DashboardResponse,
   ReleaseReadiness,
   DefectSummary,
-  Project,
+  Workspace,
 } from "@/lib/types";
 
 /* ── Health helpers ── */
@@ -111,13 +111,14 @@ function buildAlerts(
 export default function DashboardPage() {
   const { user } = useAuth();
 
-  const [project, setProject] = useState<Project | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [releaseReadiness, setReleaseReadiness] = useState<ReleaseReadiness | null>(null);
   const [defectSummary, setDefectSummary] = useState<DefectSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [noProjects, setNoProjects] = useState(false);
+  const [noProject, setNoProject] = useState(false);
+  const [noWorkspaces, setNoWorkspaces] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -126,16 +127,24 @@ export default function DashboardPage() {
     async function load() {
       setLoading(true);
       setError(null);
+      setNoProject(false);
+      setNoWorkspaces(false);
       try {
-        const projects = await getProjects(user!.workspace_id || "");
-        if (cancelled) return;
-        if (!projects || projects.length === 0) {
-          setNoProjects(true);
+        // No project selected yet (e.g. a fresh demo account) — prompt to create one.
+        if (!user!.project_id) {
+          setNoProject(true);
           setLoading(false);
           return;
         }
-        const proj = projects[0];
-        setProject(proj);
+        const workspaces = await getWorkspaces(user!.project_id);
+        if (cancelled) return;
+        if (!workspaces || workspaces.length === 0) {
+          setNoWorkspaces(true);
+          setLoading(false);
+          return;
+        }
+        const proj = workspaces[0];
+        setWorkspace(proj);
 
         const [dash, rr, ds] = await Promise.all([
           getDashboard(proj.id, 30),
@@ -169,15 +178,36 @@ export default function DashboardPage() {
     );
   }
 
-  if (noProjects) {
+  if (noProject) {
     return (
       <ProtectedRoute>
-        <div className="flex flex-col items-center justify-center h-64 text-center">
+        <div className="flex flex-col items-center justify-center h-64 text-center max-w-md mx-auto">
           <Shield className="h-12 w-12 text-slate-300 mb-4" />
           <h2 className="text-lg font-semibold text-slate-700 mb-1">Welcome to AITIS</h2>
-          <p className="text-slate-500 text-sm mb-4">No projects found. Create your first workspace to get started.</p>
+          <p className="text-slate-500 text-sm mb-4">
+            You don&apos;t have any projects yet. Create your first project from the switcher
+            (top-left) to start building test assets.
+          </p>
           <Button asChild>
-            <Link href="/studio">Create your first workspace in Studio</Link>
+            <Link href="/studio">Get started in Studio</Link>
+          </Button>
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
+  if (noWorkspaces) {
+    return (
+      <ProtectedRoute>
+        <div className="flex flex-col items-center justify-center h-64 text-center max-w-md mx-auto">
+          <Shield className="h-12 w-12 text-slate-300 mb-4" />
+          <h2 className="text-lg font-semibold text-slate-700 mb-1">No workspaces in this project yet</h2>
+          <p className="text-slate-500 text-sm mb-4">
+            Your project is selected, but the dashboard summarizes a workspace&apos;s requirements,
+            tests, and runs. Create a workspace inside it to start tracking quality metrics.
+          </p>
+          <Button asChild>
+            <Link href="/studio">Open Studio to create a workspace</Link>
           </Button>
         </div>
       </ProtectedRoute>
@@ -233,7 +263,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
             <p className="text-slate-500 mt-1">
-              {project ? `${project.name} — workspace overview` : "Workspace overview"}
+              {workspace ? `${workspace.name} — project overview` : "Project overview"}
             </p>
           </div>
           <Button variant="outline" asChild>
@@ -249,7 +279,7 @@ export default function DashboardPage() {
           <Card className="lg:col-span-1">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
-                <Shield className="h-4 w-4" /> Workspace Health Score
+                <Shield className="h-4 w-4" /> Project Health Score
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -276,7 +306,7 @@ export default function DashboardPage() {
             <CardContent>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-semibold text-slate-900 truncate">
-                  {project?.name ?? "Current Release"}
+                  {workspace?.name ?? "Current Release"}
                 </p>
                 {rr && (
                   <Badge tone={getReleaseStatusTone(rr.status)}>
@@ -413,7 +443,7 @@ export default function DashboardPage() {
             {alerts.length === 0 ? (
               <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
                 <CheckCircle2 className="h-4 w-4 text-green-500" />
-                No active risks or alerts. Workspace is in good shape.
+                No active risks or alerts. Project is in good shape.
               </div>
             ) : (
               <div className="space-y-2">

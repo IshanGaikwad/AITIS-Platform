@@ -4,7 +4,7 @@ Security layers:
 1. Script validation — block dangerous patterns before execution
 2. Execution tokens — short-lived JWTs scoped to a single job
 3. Audit events — immutable log of all execution lifecycle events
-4. Tenant isolation — verify org/workspace ownership before any operation
+4. Tenant isolation — verify org/project ownership before any operation
 5. Container hardening — enforce network restrictions, no DB creds in workers
 """
 
@@ -120,7 +120,7 @@ def create_execution_token(
     job_id: uuid.UUID,
     token_type: ExecutionTokenType = ExecutionTokenType.job_submit,
     organization_id: Optional[uuid.UUID] = None,
-    workspace_id: Optional[uuid.UUID] = None,
+    project_id: Optional[uuid.UUID] = None,
     expires_minutes: int = 30,
 ) -> str:
     """Create a short-lived JWT scoped to a single execution job.
@@ -136,7 +136,7 @@ def create_execution_token(
         "scope": "execution",
         "job_id": str(job_id),
         "org_id": str(organization_id) if organization_id else None,
-        "ws_id": str(workspace_id) if workspace_id else None,
+        "ws_id": str(project_id) if project_id else None,
         "iat": now,
         "exp": now + timedelta(minutes=expires_minutes),
     }
@@ -200,7 +200,7 @@ class AuditEvent(BaseModel):
     script_id: Optional[uuid.UUID] = None
     script_version_id: Optional[uuid.UUID] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     actor_id: Optional[uuid.UUID] = None  # User who triggered the event
     actor_type: str = "user"  # user | worker | system
     details: dict = {}
@@ -261,8 +261,8 @@ def verify_tenant_access(
 
     Rules:
     - Organization must match exactly
-    - If resource has a workspace_id, request must also have that workspace_id
-    - If resource has no workspace_id (org-level), any workspace in the org can access it
+    - If resource has a project_id, request must also have that project_id
+    - If resource has no project_id (org-level), any project in the org can access it
     """
     try:
         request_org_uuid = uuid.UUID(str(request_org_id)) if request_org_id else None

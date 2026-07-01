@@ -44,8 +44,8 @@ class TraceabilityLink(BaseModel):
 
 
 class TraceabilityMatrix(BaseModel):
-    """Full traceability matrix for a project."""
-    project_id: str
+    """Full traceability matrix for a workspace."""
+    workspace_id: str
     total_requirements: int
     total_links: int
     covered_requirements: int
@@ -63,8 +63,8 @@ class RequirementCoverageItem(BaseModel):
 
 
 class RequirementCoverageReport(BaseModel):
-    """Coverage report for a project."""
-    project_id: str
+    """Coverage report for a workspace."""
+    workspace_id: str
     total_requirements: int
     covered_requirements: int
     coverage_percent: float
@@ -75,26 +75,26 @@ class RequirementCoverageReport(BaseModel):
 # Endpoints
 # ══════════════════════════════════════════════════════════════════════
 
-@router.get("/{project_id}", response_model=TraceabilityMatrix)
+@router.get("/{workspace_id}", response_model=TraceabilityMatrix)
 async def get_traceability_matrix(
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     requirement_id: Optional[uuid.UUID] = Query(None, description="Filter by requirement"),
     uncovered_only: bool = Query(False, description="Show only uncovered requirements"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get the full traceability matrix for a project.
+    """Get the full traceability matrix for a workspace.
 
     Maps requirements → test suites → test cases → automation scripts → defects.
     """
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
-    # Get all requirements for the project
+    # Get all requirements for the workspace
     req_stmt = select(Requirement).where(
-        Requirement.project_id == project_id,
+        Requirement.workspace_id == workspace_id,
         Requirement.organization_id == org_id,
-        Requirement.workspace_id == ws_id,
+        Requirement.project_id == ws_id,
     )
     if requirement_id:
         req_stmt = req_stmt.where(Requirement.id == requirement_id)
@@ -110,7 +110,7 @@ async def get_traceability_matrix(
         suite_stmt = select(TestSuite).where(
             TestSuite.requirement_id == req.id,
             TestSuite.organization_id == org_id,
-            TestSuite.workspace_id == ws_id,
+            TestSuite.project_id == ws_id,
         )
         suite_result = await db.execute(suite_stmt)
         suites = suite_result.scalars().all()
@@ -131,7 +131,7 @@ async def get_traceability_matrix(
             tc_stmt = select(TestCase).where(
                 TestCase.test_suite_id == suite.id,
                 TestCase.organization_id == org_id,
-                TestCase.workspace_id == ws_id,
+                TestCase.project_id == ws_id,
             )
             tc_result = await db.execute(tc_stmt)
             test_cases = tc_result.scalars().all()
@@ -151,7 +151,7 @@ async def get_traceability_matrix(
                 auto_stmt = select(AutomationScript).where(
                     AutomationScript.name.ilike(f"%{tc.title}%"),
                     AutomationScript.organization_id == org_id,
-                    AutomationScript.workspace_id == ws_id,
+                    AutomationScript.project_id == ws_id,
                 ).limit(1)
                 auto_result = await db.execute(auto_stmt)
                 auto_script = auto_result.scalar_one_or_none()
@@ -162,7 +162,7 @@ async def get_traceability_matrix(
                     .where(
                         TestCaseExecution.test_case_id == tc.id,
                         TestCaseExecution.organization_id == org_id,
-                        TestCaseExecution.workspace_id == ws_id,
+                        TestCaseExecution.project_id == ws_id,
                     )
                     .order_by(TestCaseExecution.created_at.desc())
                     .limit(1)
@@ -198,7 +198,7 @@ async def get_traceability_matrix(
                 ))
 
     return TraceabilityMatrix(
-        project_id=str(project_id),
+        workspace_id=str(workspace_id),
         total_requirements=len(requirements),
         total_links=len(links),
         covered_requirements=covered_count,
@@ -207,22 +207,22 @@ async def get_traceability_matrix(
     )
 
 
-@router.get("/{project_id}/coverage", response_model=RequirementCoverageReport)
+@router.get("/{workspace_id}/coverage", response_model=RequirementCoverageReport)
 async def get_requirement_coverage(
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get requirement coverage report for a project."""
+    """Get requirement coverage report for a workspace."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     # Get all requirements
     req_result = await db.execute(
         select(Requirement).where(
-            Requirement.project_id == project_id,
+            Requirement.workspace_id == workspace_id,
             Requirement.organization_id == org_id,
-            Requirement.workspace_id == ws_id,
+            Requirement.project_id == ws_id,
         )
     )
     requirements = req_result.scalars().all()
@@ -236,7 +236,7 @@ async def get_requirement_coverage(
             select(TestSuite).where(
                 TestSuite.requirement_id == req.id,
                 TestSuite.organization_id == org_id,
-                TestSuite.workspace_id == ws_id,
+                TestSuite.project_id == ws_id,
             )
         )
         suites = suite_result.scalars().all()
@@ -247,7 +247,7 @@ async def get_requirement_coverage(
                 select(TestCase.id, TestCase.title).where(
                     TestCase.test_suite_id == suite.id,
                     TestCase.organization_id == org_id,
-                    TestCase.workspace_id == ws_id,
+                    TestCase.project_id == ws_id,
                 )
             )
             for row in tc_result.all():
@@ -267,7 +267,7 @@ async def get_requirement_coverage(
 
     total = len(requirements)
     return RequirementCoverageReport(
-        project_id=str(project_id),
+        workspace_id=str(workspace_id),
         total_requirements=total,
         covered_requirements=covered_count,
         coverage_percent=round(covered_count / total * 100, 1) if total > 0 else 0.0,

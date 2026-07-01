@@ -23,26 +23,26 @@ from app.api.v1 import (
     invitations,
     jira,
     organizations,
-    projects,
+    workspaces,
     scenarios,
     sso,
     stories,
     test_suites,
     tests,
     traceability,
-    workspaces,
+    projects,
 )
 
 router = APIRouter()
 
 # ── Tenant & Identity ──────────────────────────────────────────────────────
 router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
-router.include_router(workspaces.router, prefix="/workspaces", tags=["workspaces"])
+router.include_router(projects.router, prefix="/projects", tags=["projects"])
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
 router.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
 
-# ── Project & Requirements ──────────────────────────────────────────────────
-router.include_router(projects.router, prefix="/projects", tags=["projects"])
+# ── Workspace & Requirements ──────────────────────────────────────────────────
+router.include_router(workspaces.router, prefix="/workspaces", tags=["workspaces"])
 router.include_router(applications.router, prefix="", tags=["applications"])
 router.include_router(environments.router, prefix="", tags=["environments"])
 router.include_router(attachments.router, prefix="", tags=["attachments"])

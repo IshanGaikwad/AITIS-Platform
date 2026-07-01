@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.services import AttachmentService, PermissionService
-from app.core.security import get_current_user
+from app.core.security import claim_uuid, get_current_user, require_project_access
 from app.db.database import get_db
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
@@ -25,6 +25,21 @@ class AttachmentOut(BaseModel):
         from_attributes = True
 
 
+def _attachment_to_out(artifact) -> dict:
+    """Map an ExecutionArtifact ORM row → AttachmentOut-shaped dict.
+
+    The ExecutionArtifact model stores the attachment as ``name`` / ``size_bytes``
+    with datetime timestamps; the response schema exposes string timestamps.
+    """
+    return {
+        "id": artifact.id,
+        "original_filename": artifact.name,
+        "file_size": artifact.size_bytes or 0,
+        "created_at": artifact.created_at.isoformat() if artifact.created_at else "",
+        "updated_at": artifact.updated_at.isoformat() if artifact.updated_at else "",
+    }
+
+
 # ── Routes ───────────────────────────────────────────────────────
 
 @router.post("/requirements/{requirement_id}/upload", response_model=AttachmentOut, status_code=201)
@@ -35,18 +50,10 @@ async def upload_attachment(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a file attachment to a requirement."""
-    # Check permissions (user can read/update requirements)
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "requirements",
-        "update",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=requirement_id,
+    # User must be a project member with a write role
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to add attachments to this requirement")
 
     # Read file content
     file_content = await file.read()
@@ -59,18 +66,18 @@ async def upload_attachment(
     # Upload
     artifact = await AttachmentService.upload_attachment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         requirement_id=requirement_id,
         file_content=file_content,
         original_filename=file.filename or "file",
-        uploaded_by_user_id=current_user.id,
+        uploaded_by_user_id=claim_uuid(current_user, "user_id", "sub"),
     )
 
     if not artifact:
         raise HTTPException(status_code=500, detail="Failed to upload file")
 
-    return artifact
+    return _attachment_to_out(artifact)
 
 
 @router.get("/requirements/{requirement_id}/attachments", response_model=list[AttachmentOut])
@@ -80,27 +87,17 @@ async def list_requirement_attachments(
     db: AsyncSession = Depends(get_db),
 ):
     """List all attachments for a requirement."""
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "requirements",
-        "read",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=requirement_id,
-    )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to view this requirement")
+    # User must be a member of the project
+    await require_project_access(db, current_user, claim_uuid(current_user, "project_id"))
 
     attachments = await AttachmentService.list_requirement_attachments(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         requirement_id=requirement_id,
     )
 
-    return [AttachmentOut.from_orm(a).model_dump() for a in attachments]
+    return [_attachment_to_out(a) for a in attachments]
 
 
 @router.get("/{attachment_id}/download")
@@ -113,8 +110,8 @@ async def download_attachment(
     # Get attachment to check permission
     artifact = await AttachmentService.get_attachment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         attachment_id=attachment_id,
     )
 
@@ -122,24 +119,16 @@ async def download_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     # Check permissions to the requirement
-    requirement_id = artifact.metadata_.get("requirement_id")
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "requirements",
-        "read",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=UUID(requirement_id),
-    )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to download this attachment")
+    requirement_id = (artifact.metadata_ or {}).get("requirement_id")
+    if not requirement_id:
+        raise HTTPException(status_code=422, detail="Attachment is missing requirement metadata")
+    await require_project_access(db, current_user, claim_uuid(current_user, "project_id"))
 
     # Download
     result = await AttachmentService.download_attachment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         attachment_id=attachment_id,
     )
 
@@ -147,11 +136,11 @@ async def download_attachment(
         raise HTTPException(status_code=500, detail="Failed to download file")
 
     content, filename = result
-    from fastapi.responses import FileResponse
-    return FileResponse(
+    from fastapi.responses import Response
+    return Response(
         content=content,
         media_type="application/octet-stream",
-        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -165,8 +154,8 @@ async def delete_attachment(
     # Get attachment first
     artifact = await AttachmentService.get_attachment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         attachment_id=attachment_id,
     )
 
@@ -174,22 +163,16 @@ async def delete_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     # Check permissions to the requirement
-    requirement_id = artifact.metadata_.get("requirement_id")
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "requirements",
-        "update",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=UUID(requirement_id),
+    requirement_id = (artifact.metadata_ or {}).get("requirement_id")
+    if not requirement_id:
+        raise HTTPException(status_code=422, detail="Attachment is missing requirement metadata")
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to delete this attachment")
 
     await AttachmentService.delete_attachment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         attachment_id=attachment_id,
     )

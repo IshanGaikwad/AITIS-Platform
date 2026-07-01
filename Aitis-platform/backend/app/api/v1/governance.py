@@ -23,7 +23,7 @@ router = APIRouter()
 class RoleAssignment(BaseModel):
     user_id: str
     role: str = Field(..., description="administrator | org_owner | qa_lead | qa_engineer | viewer")
-    scope: str = Field("workspace", description="organization | workspace | project")
+    scope: str = Field("project", description="organization | project | workspace")
     scope_id: Optional[str] = None
 
 
@@ -63,7 +63,7 @@ class PolicyOut(BaseModel):
 class ComplianceReport(BaseModel):
     generated_at: str
     organization_id: str
-    workspace_id: Optional[str] = None
+    project_id: Optional[str] = None
     sections: List[dict] = Field(default_factory=list)
     summary: dict = Field(default_factory=dict)
     score: float = 0.0
@@ -110,9 +110,9 @@ async def list_available_roles(
                 "label": "Administrator",
                 "description": "Full platform access including billing and SSO configuration",
                 "permissions": [
-                    "manage_organization", "manage_workspace", "manage_users",
+                    "manage_organization", "manage_project", "manage_users",
                     "manage_roles", "manage_sso", "manage_billing",
-                    "manage_projects", "manage_requirements", "manage_test_cases",
+                    "manage_workspaces", "manage_requirements", "manage_test_cases",
                     "manage_automation", "execute_tests", "view_reports",
                     "manage_defects", "manage_environments", "view_audit_logs",
                 ],
@@ -122,8 +122,8 @@ async def list_available_roles(
                 "label": "Organization Owner",
                 "description": "Organization-level management without billing access",
                 "permissions": [
-                    "manage_organization", "manage_workspace", "manage_users",
-                    "manage_roles", "manage_projects", "manage_requirements",
+                    "manage_organization", "manage_project", "manage_users",
+                    "manage_roles", "manage_workspaces", "manage_requirements",
                     "manage_test_cases", "manage_automation", "execute_tests",
                     "view_reports", "manage_defects", "manage_environments",
                     "view_audit_logs",
@@ -134,7 +134,7 @@ async def list_available_roles(
                 "label": "QA Lead",
                 "description": "Full QA management including automation and approvals",
                 "permissions": [
-                    "manage_projects", "manage_requirements", "manage_test_cases",
+                    "manage_workspaces", "manage_requirements", "manage_test_cases",
                     "manage_automation", "execute_tests", "view_reports",
                     "manage_defects", "manage_environments", "approve_scripts",
                     "manage_test_suites",
@@ -201,7 +201,7 @@ async def assign_role(
 async def revoke_role(
     user_id: str,
     role: str,
-    scope: str = Query("workspace"),
+    scope: str = Query("project"),
     scope_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("administrator", "org_owner")),
@@ -311,13 +311,13 @@ async def create_policy(
 
 @router.get("/compliance/report", response_model=ComplianceReport)
 async def generate_compliance_report(
-    workspace_id: Optional[str] = Query(None),
+    project_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("administrator", "org_owner", "qa_lead")),
 ):
-    """Generate a compliance report for the organization/workspace."""
+    """Generate a compliance report for the organization/project."""
     org_id = current_user.get("organization_id")
-    ws_id = workspace_id or current_user.get("workspace_id")
+    ws_id = project_id or current_user.get("project_id")
 
     # In production, compute from actual data
     sections = [
@@ -366,7 +366,7 @@ async def generate_compliance_report(
     return ComplianceReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         organization_id=str(org_id),
-        workspace_id=str(ws_id),
+        project_id=str(ws_id),
         sections=sections,
         summary={
             "total_checks": total,

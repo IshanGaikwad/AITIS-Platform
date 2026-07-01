@@ -41,17 +41,17 @@ export default function TestSuitesPage() {
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   const [editingCase, setEditingCase] = useState<{ suiteId: string; caseId?: string; data?: Partial<TestCaseDB> } | null>(null);
 
-  const projectId = user?.workspace_id || "";
+  const workspaceId = user?.project_id || "";
 
   const loadSuites = useCallback(async () => {
-    if (!projectId) return;
+    if (!workspaceId) return;
     try {
-      const s = await getTestSuites(projectId);
+      const s = await getTestSuites(workspaceId);
       setSuites(s);
     } catch (err) {
       console.error("Failed to load test suites:", err);
     }
-  }, [projectId]);
+  }, [workspaceId]);
 
   const loadTestCases = useCallback(async (suiteId: string) => {
     try {
@@ -81,11 +81,11 @@ export default function TestSuitesPage() {
 
   const handleCreateSuite = async () => {
     const name = prompt("Enter suite name:");
-    if (!name || !projectId) return;
+    if (!name || !workspaceId) return;
     try {
       const created = await createTestSuite({
         name,
-        project_id: projectId,
+        workspace_id: workspaceId,
         type: "manual",
       });
       setSuites(prev => [...prev, created]);
@@ -183,7 +183,7 @@ export default function TestSuitesPage() {
       <div className="grid grid-cols-12 gap-6 h-[calc(100vh-200px)]">
         <div className="col-span-3 h-full">
           <TestSuiteFolderTree 
-            projectId={projectId}
+            workspaceId={workspaceId}
             onSelectFolder={(id) => setSelectedFolderId(id)}
             onSelectCase={(id) => setSelectedCaseId(id)}
           />

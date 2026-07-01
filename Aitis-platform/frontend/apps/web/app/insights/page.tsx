@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
-  getProjects,
+  getWorkspaces,
   listExecutionJobs,
   getDefects,
   createDefect,
@@ -46,6 +46,7 @@ import type {
   RequirementCoverageReport,
 } from "@/lib/types";
 import { useToast } from "@/components/ui/use-toast";
+import { ReportsDashboard } from "@/components/insights/report-charts";
 
 const SEV_TONE: Record<string, "rose" | "amber" | "blue" | "slate"> = {
   critical: "rose",
@@ -61,11 +62,11 @@ const dur = (s?: number | null) => !s ? "—" : s < 60 ? `${Math.round(s)}s` : `
 interface NewDefectDialogProps {
   open: boolean;
   onClose: () => void;
-  projectId: string;
+  workspaceId: string;
   onCreated: () => void;
 }
 
-function NewDefectDialog({ open, onClose, projectId, onCreated }: NewDefectDialogProps) {
+function NewDefectDialog({ open, onClose, workspaceId, onCreated }: NewDefectDialogProps) {
   const { toast } = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -79,7 +80,7 @@ function NewDefectDialog({ open, onClose, projectId, onCreated }: NewDefectDialo
     setSaving(true);
     try {
       await createDefect({
-        project_id: projectId || "default",
+        workspace_id: workspaceId || "default",
         title: title.trim(),
         description,
         severity,
@@ -153,7 +154,7 @@ export default function InsightsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const [projectId, setProjectId] = useState<string>("");
+  const [workspaceId, setWorkspaceId] = useState<string>("");
   const [reports, setReports] = useState<ExecutionJobSummary[]>([]);
   const [failedJobs, setFailedJobs] = useState<ExecutionJobSummary[]>([]);
   const [defects, setDefects] = useState<Defect[]>([]);
@@ -170,28 +171,35 @@ export default function InsightsPage() {
     async function load() {
       setLoading(true);
       try {
-        const projects = await getProjects(user!.workspace_id || "");
-        if (cancelled || !projects?.length) { setLoading(false); return; }
-        const pid = projects[0].id;
-        if (!cancelled) setProjectId(pid);
-
-        const [allJobs, failJobs, defList, matrix, cov, dash] = await Promise.allSettled([
+        // Tenant-scoped data (execution jobs, defects) does NOT depend on a workspace —
+        // load it unconditionally so the Reports charts populate even before any
+        // workspace exists.
+        const [allJobs, failJobs, defList] = await Promise.allSettled([
           listExecutionJobs({ limit: 20 }),
           listExecutionJobs({ status: "failed", limit: 20 }),
           getDefects({ limit: 50 }),
-          getTraceabilityMatrix(pid),
-          getRequirementCoverage(pid),
-          getDashboard(pid, 30),
         ]);
-
         if (cancelled) return;
-
         if (allJobs.status === "fulfilled") setReports(allJobs.value);
         if (failJobs.status === "fulfilled") setFailedJobs(failJobs.value);
         if (defList.status === "fulfilled") setDefects(defList.value);
-        if (matrix.status === "fulfilled") setTraceability(matrix.value);
-        if (cov.status === "fulfilled") setCoverage(cov.value);
-        if (dash.status === "fulfilled") setTrends(dash.value.execution_trends);
+
+        // Workspace-scoped data (traceability, coverage, trends) needs a workspace id.
+        const workspaces = await getWorkspaces(user!.project_id || "").catch(() => []);
+        const pid = workspaces?.[0]?.id;
+        if (cancelled) return;
+        if (pid) {
+          setWorkspaceId(pid);
+          const [matrix, cov, dash] = await Promise.allSettled([
+            getTraceabilityMatrix(pid),
+            getRequirementCoverage(pid),
+            getDashboard(pid, 30),
+          ]);
+          if (cancelled) return;
+          if (matrix.status === "fulfilled") setTraceability(matrix.value);
+          if (cov.status === "fulfilled") setCoverage(cov.value);
+          if (dash.status === "fulfilled") setTrends(dash.value.execution_trends);
+        }
       } catch {
         // non-critical — tabs show empty states
       } finally {
@@ -218,7 +226,7 @@ export default function InsightsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Insights</h1>
           <p className="text-slate-500 mt-1">
-            Quality analytics, defect trends, and traceability across your workspaces.
+            Quality analytics, defect trends, and traceability across your projects.
           </p>
         </div>
 
@@ -251,31 +259,43 @@ export default function InsightsPage() {
             </TabsList>
 
             {/* Reports */}
-            <TabsContent value="reports" className="mt-4 space-y-3">
-              {reports.length === 0
-                ? <Card><CardContent className="py-12 text-center text-sm text-slate-500">No execution reports found.</CardContent></Card>
-                : reports.map((job) => (
-                <Card key={job.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-mono text-slate-400">{job.id.slice(0, 8)}</span>
-                          <Badge tone={job.status === "passed" ? "green" : job.status === "failed" ? "rose" : "slate"}>
-                            {job.status}
-                          </Badge>
-                          {job.browser && <Badge tone="slate" className="text-[10px]">{job.browser}</Badge>}
+            <TabsContent value="reports" className="mt-4 space-y-5">
+              {/* Allure-style visual dashboard */}
+              <ReportsDashboard reports={reports} trends={trends} />
+
+              {/* Recent runs list */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-700">Recent Runs</h3>
+                  <Button variant="outline" size="sm" onClick={() => toast({ title: "Export started" })}>
+                    <Download className="h-3.5 w-3.5 mr-1" /> Export Report
+                  </Button>
+                </div>
+                {reports.length === 0
+                  ? <Card><CardContent className="py-12 text-center text-sm text-slate-500">No execution reports found.</CardContent></Card>
+                  : reports.map((job) => (
+                  <Card key={job.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="pt-4 pb-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-mono text-slate-400">{job.id.slice(0, 8)}</span>
+                            <Badge tone={job.status === "passed" ? "green" : job.status === "failed" ? "rose" : "slate"}>
+                              {job.status}
+                            </Badge>
+                            {job.browser && <Badge tone="slate" className="text-[10px]">{job.browser}</Badge>}
+                          </div>
+                          <p className="text-sm font-semibold text-slate-900 truncate">Script: {job.script_id.slice(0, 20)}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{fmt(job.started_at ?? job.created_at)} · {dur(job.duration_seconds)}</p>
                         </div>
-                        <p className="text-sm font-semibold text-slate-900 truncate">Script: {job.script_id.slice(0, 20)}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{fmt(job.started_at ?? job.created_at)} · {dur(job.duration_seconds)}</p>
+                        <Button variant="outline" size="sm" onClick={() => toast({ title: "Export started" })}>
+                          <Download className="h-3.5 w-3.5 mr-1" /> Export
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => toast({ title: "Export started" })}>
-                        <Download className="h-3.5 w-3.5 mr-1" /> Export
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </TabsContent>
 
             {/* Failure Analysis */}
@@ -345,7 +365,7 @@ export default function InsightsPage() {
               <NewDefectDialog
                 open={defectDialogOpen}
                 onClose={() => setDefectDialogOpen(false)}
-                projectId={projectId}
+                workspaceId={workspaceId}
                 onCreated={refreshDefects}
               />
             </TabsContent>

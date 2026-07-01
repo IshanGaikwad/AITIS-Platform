@@ -57,8 +57,8 @@ export function Breadcrumb({ items, className }: BreadcrumbProps) {
 /** Sub-page labels for routes under /studio/[workspaceId]/ */
 const studioSubPages: Record<string, string> = {
   requirements: "Requirements",
-  "test-cases": "Test Cases",
-  "test-generator": "Test Generator",
+  "test-cases": "Test Case Generator",
+  "test-generator": "Test Case Generator",
   automation: "Automation",
   "test-data": "Test Data",
   "test-suites": "Test Suites",

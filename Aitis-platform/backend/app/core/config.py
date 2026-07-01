@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     oauth2_scopes: str | None = None  # For Atlassian
     oauth2_redirect_uri: str = "http://localhost:3000/auth/callback"
 
+    # Per-provider credential overrides — let several providers be offered at once
+    # (e.g. Atlassian + GitHub). Each falls back to the generic OAUTH2_* values when
+    # the requested provider matches OAUTH2_PROVIDER (single-provider deployments).
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    atlassian_client_id: str | None = None
+    atlassian_client_secret: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    microsoft_client_id: str | None = None
+    microsoft_client_secret: str | None = None
+
     # S3-compatible storage (for execution artifacts)
     s3_endpoint_url: str | None = None
     s3_access_key: str | None = None
@@ -52,6 +64,19 @@ class Settings(BaseSettings):
     execution_artifacts_dir: str = "/tmp/aitis-artifacts"
     execution_network_mode: str = "bridge"     # Docker network: bridge|none|host
     execution_allowed_networks: list[str] = []  # Networks containers can access
+    execution_runner: str = "simulated"        # simulated | docker (real container runner)
+
+    # ── AI / LLM test generation (Groq — OpenAI-compatible API) ───
+    ai_provider: str = "groq"                   # groq | mock
+    groq_api_key: str = ""                       # set via GROQ_API_KEY env var
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    ai_model: str = "llama-3.3-70b-versatile"
+    ai_max_tokens: int = 4096
+
+    @property
+    def ai_enabled(self) -> bool:
+        """True when a real LLM provider is configured (else heuristic fallback)."""
+        return self.ai_provider == "groq" and bool(self.groq_api_key)
 
     model_config = SettingsConfigDict(
         env_file=".env",

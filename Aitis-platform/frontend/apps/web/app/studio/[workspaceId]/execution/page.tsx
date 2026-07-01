@@ -2,17 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Play, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { getTestSuites, createExecution } from "@/lib/api";
-import type { TestSuite } from "@/lib/types";
+import { getTestSuites, createExecution, getWorkspaceEnvironments } from "@/lib/api";
+import type { TestSuite, Environment } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 
 import { cn } from "@/lib/utils";
 
-const ENVIRONMENT_OPTIONS = ["dev", "qa", "uat", "staging", "production"] as const;
 const EXECUTION_TYPE_OPTIONS = ["manual", "automated"] as const;
 
 const selectClass =
@@ -30,15 +30,18 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 export default function ExecutionPage() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.workspaceId as string;
+  const workspaceId = params.workspaceId as string;
   const { toast } = useToast();
 
   const [suites, setSuites] = useState<TestSuite[]>([]);
   const [suitesLoading, setSuitesLoading] = useState(true);
   const [suitesError, setSuitesError] = useState<string | null>(null);
 
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [environmentsLoading, setEnvironmentsLoading] = useState(true);
+
   const [selectedSuiteId, setSelectedSuiteId] = useState("");
-  const [environment, setEnvironment] = useState<string>("qa");
+  const [environmentId, setEnvironmentId] = useState("");
   const [executionType, setExecutionType] = useState<string>("manual");
   const [notes, setNotes] = useState("");
 
@@ -49,7 +52,7 @@ export default function ExecutionPage() {
     setSuitesLoading(true);
     setSuitesError(null);
     try {
-      const data = await getTestSuites(projectId);
+      const data = await getTestSuites(workspaceId);
       setSuites(data);
       if (data.length > 0) setSelectedSuiteId(data[0].id);
     } catch {
@@ -57,11 +60,25 @@ export default function ExecutionPage() {
     } finally {
       setSuitesLoading(false);
     }
-  }, [projectId]);
+  }, [workspaceId]);
+
+  const fetchEnvironments = useCallback(async () => {
+    setEnvironmentsLoading(true);
+    try {
+      const data = await getWorkspaceEnvironments(workspaceId);
+      setEnvironments(data);
+      if (data.length > 0) setEnvironmentId(data[0].id);
+    } catch {
+      // non-fatal — manual runs don't require a target
+    } finally {
+      setEnvironmentsLoading(false);
+    }
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchSuites();
-  }, [fetchSuites]);
+    fetchEnvironments();
+  }, [fetchSuites, fetchEnvironments]);
 
   const handleRun = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,19 +88,31 @@ export default function ExecutionPage() {
       setValidationError("Please select a test suite before running.");
       return;
     }
+    if (executionType === "automated" && !environmentId) {
+      setValidationError("Select a target environment for an automated run.");
+      return;
+    }
 
     setSubmitting(true);
     try {
+      const selectedEnv = environments.find((e) => e.id === environmentId);
       const execution = await createExecution({
         test_suite_id: selectedSuiteId,
-        environment,
+        environment: selectedEnv?.name,
+        environment_id: environmentId || undefined,
         execution_type: executionType,
         notes: notes.trim() || undefined,
       });
+      const summary = execution.summary;
+      const description =
+        executionType === "automated" && summary
+          ? `${summary.passed ?? 0} passed, ${summary.failed ?? 0} failed, ${summary.errors ?? 0} errors` +
+            (summary.target_url ? ` against ${summary.target_url}` : "")
+          : `Run ${execution.id.slice(0, 8)} is now queued.`;
       toast({
-        title: "Execution started",
-        description: `Run ${execution.id.slice(0, 8)} is now queued.`,
-        variant: "success",
+        title: executionType === "automated" ? "Automated run completed" : "Execution started",
+        description,
+        variant: executionType === "automated" && (summary?.failed || summary?.errors) ? "destructive" : "success",
       });
       router.push("/runs");
     } catch (err) {
@@ -128,7 +157,7 @@ export default function ExecutionPage() {
                     No suites available.{" "}
                     <button
                       type="button"
-                      onClick={() => router.push(`/studio/${projectId}/test-suites`)}
+                      onClick={() => router.push(`/studio/${workspaceId}/test-suites`)}
                       className="text-blue-600 underline"
                     >
                       Create one first.
@@ -154,18 +183,34 @@ export default function ExecutionPage() {
                 )}
               </FormField>
 
-              {/* Environment + Execution Type */}
+              {/* Target Environment + Execution Type */}
               <div className="grid grid-cols-2 gap-4">
-                <FormField label="Environment">
-                  <select
-                    value={environment}
-                    onChange={(e) => setEnvironment(e.target.value)}
-                    className={selectClass}
-                  >
-                    {ENVIRONMENT_OPTIONS.map((o) => (
-                      <option key={o} value={o}>{o.toUpperCase()}</option>
-                    ))}
-                  </select>
+                <FormField label="Target Environment">
+                  {environmentsLoading ? (
+                    <div className="h-9 animate-pulse rounded-lg bg-slate-100" />
+                  ) : environments.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No target configured.{" "}
+                      <Link
+                        href={`/studio/${workspaceId}/target`}
+                        className="text-blue-600 underline"
+                      >
+                        Set one up in Target.
+                      </Link>
+                    </p>
+                  ) : (
+                    <select
+                      value={environmentId}
+                      onChange={(e) => setEnvironmentId(e.target.value)}
+                      className={selectClass}
+                    >
+                      {environments.map((env) => (
+                        <option key={env.id} value={env.id}>
+                          {env.name} ({env.environment_type}) — {env.base_url ?? "no URL"}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </FormField>
                 <FormField label="Execution Type">
                   <select
@@ -179,6 +224,12 @@ export default function ExecutionPage() {
                   </select>
                 </FormField>
               </div>
+              {executionType === "automated" && (
+                <p className="-mt-2 text-xs text-slate-500">
+                  Automated runs execute against the target environment's URL above and report
+                  real reachability per test case.
+                </p>
+              )}
 
               {/* Notes */}
               <FormField label="Notes (optional)">

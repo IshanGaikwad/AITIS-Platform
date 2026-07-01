@@ -28,7 +28,7 @@ import { useForm } from "react-hook-form";
 
 interface Environment {
   id: string;
-  project_id: string;
+  workspace_id: string;
   application_id: string;
   name: string;
   environment_type: "dev" | "qa" | "uat" | "staging" | "prod" | "custom";
@@ -47,7 +47,9 @@ interface EnvironmentFormData {
   health_check_enabled?: boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+// Client-side: use a relative base so Next.js rewrites proxy /api/* to the backend
+// (avoids CORS and keeps the port in next.config.mjs as the single source of truth).
+const API_BASE = "/api";
 
 const ENV_TYPE_COLORS: Record<string, string> = {
   dev: "bg-blue-100 text-blue-800",
@@ -59,7 +61,7 @@ const ENV_TYPE_COLORS: Record<string, string> = {
 };
 
 async function fetchEnvironments(
-  projectId: string,
+  workspaceId: string,
   applicationId: string
 ): Promise<Environment[]> {
   const response = await fetch(
@@ -71,7 +73,9 @@ async function fetchEnvironments(
     }
   );
   if (!response.ok) throw new Error("Failed to fetch environments");
-  return response.json();
+  // Backend returns a paginated envelope: { items, total, skip, limit }
+  const data = await response.json();
+  return data.items ?? [];
 }
 
 async function createEnvironment(
@@ -110,11 +114,11 @@ async function deleteEnvironment(
 }
 
 export function EnvironmentsList({
-  projectId,
+  workspaceId,
   applicationId,
   applicationName,
 }: {
-  projectId: string;
+  workspaceId: string;
   applicationId: string;
   applicationName: string;
 }) {
@@ -125,7 +129,7 @@ export function EnvironmentsList({
   // Fetch environments
   const { data: environments = [], isLoading } = useQuery({
     queryKey: ["environments", applicationId],
-    queryFn: () => fetchEnvironments(projectId, applicationId),
+    queryFn: () => fetchEnvironments(workspaceId, applicationId),
   });
 
   // Create environment mutation

@@ -42,7 +42,7 @@ const EMPTY_FORM: SuiteForm = { name: "", type: "smoke", description: "" };
 export default function TestSuitesPage() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.workspaceId as string;
+  const workspaceId = params.workspaceId as string;
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -62,14 +62,14 @@ export default function TestSuitesPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getTestSuites(projectId);
+      const data = await getTestSuites(workspaceId);
       setSuites(data);
     } catch {
       setError("Failed to load test suites.");
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchSuites();
@@ -91,7 +91,7 @@ export default function TestSuitesPage() {
     setFormError(null);
     try {
       const created = await createTestSuite({
-        project_id: projectId,
+        workspace_id: workspaceId,
         name: form.name.trim(),
         type: form.type,
         description: form.description.trim() || undefined,
@@ -121,7 +121,7 @@ export default function TestSuitesPage() {
   };
 
   const handleSuiteClick = (suiteId: string) => {
-    router.push(`/studio/${projectId}/test-cases?suite=${suiteId}`);
+    router.push(`/studio/${workspaceId}/test-cases?suite=${suiteId}`);
   };
 
   return (

@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-export default function WorkspaceOverviewPage() {
+export default function ProjectOverviewPage() {
   const params = useParams();
   const router = useRouter();
   const workspaceId = params.workspaceId as string;
@@ -47,7 +47,7 @@ export default function WorkspaceOverviewPage() {
       label: "Generate Test Cases",
       description: "Use AI to generate cases from requirements",
       icon: Zap,
-      onClick: () => router.push(`/studio/${workspaceId}/test-generator`),
+      onClick: () => router.push(`/studio/${workspaceId}/test-cases`),
     },
     {
       label: "Start Test Run",
@@ -63,10 +63,10 @@ export default function WorkspaceOverviewPage() {
       <Card>
         <CardContent className="p-6 text-center">
           <Activity className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <h3 className="mb-1 text-base font-semibold text-slate-900">Workspace Overview</h3>
+          <h3 className="mb-1 text-base font-semibold text-slate-900">Project Overview</h3>
           <p className="text-sm text-slate-500">
             Get started by adding requirements, creating test suites, and running executions.
-            Stats will appear here as your workspace grows.
+            Stats will appear here as your project grows.
           </p>
         </CardContent>
       </Card>

@@ -117,6 +117,24 @@ class MockAIProvider(AIProvider):
                     }
                 ]
             })
+        elif model_name == 'StackDetectionResult':
+            # No LLM credentials configured — fall back to the heuristic signal line
+            # that stack_detection_service embeds in every prompt, rather than
+            # fabricating a framework guess we have no basis for.
+            signals_line = next(
+                (line for line in prompt.splitlines() if line.startswith("Heuristic signals")),
+                "Heuristic signals already detected: no strong signature detected",
+            )
+            detected = signals_line.split(":", 1)[1].strip() if ":" in signals_line else ""
+            content = json.dumps({
+                "frontend_framework": None,
+                "backend_hints": None,
+                "language": None,
+                "css_framework": None,
+                "confidence": 0.2 if detected and detected != "no strong signature detected" else 0.0,
+                "summary": f"AI provider not configured — heuristic signals only: {detected}",
+                "suggested_application_type": "WEB",
+            })
         else:
             content = "{}"
         

@@ -104,7 +104,7 @@ async def trigger_pipeline_execution(
     a pipeline run ID for tracking.
     """
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     pipeline_run_id = str(uuid.uuid4())
     jobs_created = []
@@ -117,7 +117,7 @@ async def trigger_pipeline_execution(
         result = await db.execute(
             select(AutomationScript.id).where(
                 AutomationScript.organization_id == org_id,
-                AutomationScript.workspace_id == ws_id,
+                AutomationScript.project_id == ws_id,
                 AutomationScript.status == "ready",
             )
         )
@@ -142,9 +142,9 @@ async def trigger_pipeline_execution(
             queued_at=datetime.now(timezone.utc),
             triggered_by=current_user.get("id") if isinstance(current_user, dict) else None,
             organization_id=org_id,
-            workspace_id=ws_id,
+            project_id=ws_id,
             # Store pipeline metadata
-            metadata={
+            metadata_={
                 "pipeline_run_id": pipeline_run_id,
                 "pipeline_id": payload.pipeline_id,
                 "pipeline_name": payload.pipeline_name,
@@ -181,14 +181,14 @@ async def get_pipeline_status(
 ):
     """Get the status of a CI/CD pipeline test run."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     # Find all jobs for this pipeline run
     result = await db.execute(
         select(ExecutionJob).where(
             ExecutionJob.organization_id == org_id,
-            ExecutionJob.workspace_id == ws_id,
-            ExecutionJob.metadata["pipeline_run_id"].as_string() == pipeline_run_id,
+            ExecutionJob.project_id == ws_id,
+            ExecutionJob.metadata_["pipeline_run_id"].as_string() == pipeline_run_id,
         )
     )
     jobs = result.scalars().all()
@@ -212,11 +212,11 @@ async def get_pipeline_status(
         overall = "cancelled"
 
     # Get metadata from first job
-    meta = jobs[0].metadata or {} if jobs else {}
+    meta = jobs[0].metadata_ or {} if jobs else {}
 
     # Calculate duration
     started = min((j.started_at for j in jobs if j.started_at), default=None)
-    completed = max((j.completed_at for j in jobs if j.completed_at), default=None)
+    completed = max((j.finished_at for j in jobs if j.finished_at), default=None)
     duration = (completed - started).total_seconds() if started and completed else None
 
     return PipelineStatus(
@@ -242,13 +242,13 @@ async def get_pipeline_report(
 ):
     """Get a detailed test report for a CI/CD pipeline run."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     result = await db.execute(
         select(ExecutionJob).where(
             ExecutionJob.organization_id == org_id,
-            ExecutionJob.workspace_id == ws_id,
-            ExecutionJob.metadata["pipeline_run_id"].as_string() == pipeline_run_id,
+            ExecutionJob.project_id == ws_id,
+            ExecutionJob.metadata_["pipeline_run_id"].as_string() == pipeline_run_id,
         )
     )
     jobs = result.scalars().all()
@@ -264,21 +264,22 @@ async def get_pipeline_report(
     total_duration = 0
 
     for job in jobs:
-        summary = job.summary if isinstance(job.summary, dict) else {}
+        summary = job.result_summary if isinstance(job.result_summary, dict) else {}
+        duration_ms = int((job.duration_seconds or 0) * 1000)
         total_tests += summary.get("total_cases", 0)
         total_passed += summary.get("passed", 0)
         total_failed += summary.get("failed", 0)
         total_skipped += summary.get("skipped", 0)
-        total_duration += job.duration_ms or 0
+        total_duration += duration_ms
 
         results_list.append({
             "job_id": str(job.id),
             "script_id": str(job.script_id),
             "status": job.status,
             "summary": summary,
-            "duration_ms": job.duration_ms,
+            "duration_ms": duration_ms,
             "started_at": job.started_at.isoformat() if job.started_at else None,
-            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "completed_at": job.finished_at.isoformat() if job.finished_at else None,
         })
 
     pass_rate = (total_passed / total_tests * 100) if total_tests > 0 else 0.0
@@ -400,7 +401,7 @@ async def list_supported_providers(
 
 @router.get("/config/github-actions")
 async def generate_github_actions_config(
-    project_name: str = Query("aitis-tests"),
+    workspace_name: str = Query("aitis-tests"),
     scripts_glob: str = Query("tests/**/*.spec.ts"),
     base_url: str = Query("https://api.aitis.dev"),
     current_user=Depends(get_current_user),
@@ -453,7 +454,7 @@ jobs:
         with:
           api_url: '{base_url}'
           api_token: ${{{{ secrets.AITIS_API_TOKEN }}}}
-          project_id: ${{{{ secrets.AITIS_PROJECT_ID }}}}
+          workspace_id: ${{{{ secrets.AITIS_WORKSPACE_ID }}}}
           scripts_glob: '{scripts_glob}'
           browser: ${{{{ inputs.browser || 'chromium' }}}}
           headless: true
@@ -473,12 +474,12 @@ jobs:
           echo "Pass Rate: ${{{{ steps.aitis.outputs.pass_rate }}}}%"
           echo "Report URL: ${{{{ steps.aitis.outputs.report_url }}}}"
 """
-    return {"filename": f".github/workflows/{project_name}.yml", "content": yaml_content}
+    return {"filename": f".github/workflows/{workspace_name}.yml", "content": yaml_content}
 
 
 @router.get("/config/gitlab-ci")
 async def generate_gitlab_ci_config(
-    project_name: str = Query("aitis-tests"),
+    workspace_name: str = Query("aitis-tests"),
     scripts_glob: str = Query("tests/**/*.spec.ts"),
     base_url: str = Query("https://api.aitis.dev"),
     current_user=Depends(get_current_user),

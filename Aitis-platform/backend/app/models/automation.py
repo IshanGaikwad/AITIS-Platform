@@ -7,7 +7,7 @@ from enum import Enum
 from datetime import datetime
 
 from sqlalchemy import String, Text, ForeignKey, Integer, Float, Boolean, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,7 +94,7 @@ class RecordedActionType(str, Enum):
 class AutomationScript(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     __tablename__ = "automation_scripts"
     __table_args__ = (
-        Index("ix_ascript_workspace", "workspace_id"),
+        Index("ix_ascript_project", "project_id"),
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -106,15 +106,15 @@ class AutomationScript(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanc
     version: Mapped[int] = mapped_column(Integer, default=1)
     is_healed: Mapped[bool] = mapped_column(Boolean, default=False)
     healing_proposal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("healing_proposals.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("healing_proposals.id", ondelete="SET NULL"), nullable=True
     )
     # Phase 4 â€” approved version for execution (only approved versions can run)
     approved_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("script_versions.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("script_versions.id", ondelete="SET NULL"), nullable=True
     )
     # Phase 4 â€” traceability: which test case this script automates
     test_case_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("test_cases.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     # Relationships
@@ -151,14 +151,14 @@ class ScriptVersion(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     script_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="CASCADE"), nullable=False, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False, default="")
     file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default=ScriptStatus.draft.value)
     changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     change_summary: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     # Snapshot of code hash for integrity verification
@@ -182,21 +182,21 @@ class ExecutionJob(Base, UUIDMixin, TimestampMixin, TenantMixin):
     __table_args__ = (
         Index("ix_ej_script_id", "script_id"),
         Index("ix_ej_status", "status"),
-        Index("ix_ej_workspace", "workspace_id"),
+        Index("ix_ej_project", "project_id"),
     )
 
     script_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="CASCADE"), nullable=False, index=True
     )
     script_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("script_versions.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("script_versions.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(
         String(25), default=ExecutionJobStatus.queued.value, nullable=False
     )
     # Execution environment
     environment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("environments.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("environments.id", ondelete="SET NULL"), nullable=True
     )
     base_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     browser: Mapped[str] = mapped_column(String(20), default=BrowserType.chromium.value)
@@ -216,12 +216,15 @@ class ExecutionJob(Base, UUIDMixin, TimestampMixin, TenantMixin):
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     # Who triggered this execution
     triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     # Short-lived execution token (not the user's session token)
     execution_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     # Structured result summary
     result_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Free-form metadata (e.g. CI/CD pipeline provenance). Column name "metadata"
+    # is mapped to the reserved-safe attribute ``metadata_``.
+    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
     # Error details
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stack_trace: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -252,10 +255,10 @@ class ExecutionResult(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("execution_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("execution_jobs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     test_case_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("test_cases.id", ondelete="SET NULL"), nullable=True, index=True
     )
     test_name: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[str] = mapped_column(String(25), default=ExecutionJobStatus.queued.value)
@@ -295,7 +298,7 @@ class ExecutionStepResult(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     result_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("execution_results.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("execution_results.id", ondelete="CASCADE"), nullable=False, index=True
     )
     step_name: Mapped[str] = mapped_column(String(500), nullable=False)
     step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -324,7 +327,7 @@ class RecordedAction(Base, UUIDMixin, TimestampMixin, TenantMixin):
     )
 
     script_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("automation_scripts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     session_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     action_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -354,7 +357,7 @@ class RecordedAction(Base, UUIDMixin, TimestampMixin, TenantMixin):
 class FrameworkConfiguration(Base, UUIDMixin, TimestampMixin, TenantMixin):
     __tablename__ = "framework_configurations"
     __table_args__ = (
-        Index("ix_fwconfig_workspace", "workspace_id"),
+        Index("ix_fwconfig_project", "project_id"),
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -375,7 +378,7 @@ class PageObject(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin
     )
 
     framework_config_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("framework_configurations.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("framework_configurations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -395,7 +398,7 @@ class Locator(Base, UUIDMixin, TimestampMixin, TenantMixin, AIGovernanceMixin):
     )
 
     page_object_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("page_objects.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("page_objects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     strategy: Mapped[str] = mapped_column(String(20), default=LocatorStrategy.css.value)

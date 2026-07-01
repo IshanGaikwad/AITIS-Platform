@@ -9,32 +9,32 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   PlayCircle,
   Clock,
-  User,
   Calendar,
   Filter,
   Loader2,
   XCircle,
   RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
-import { listExecutionJobs, cancelExecutionJob } from "@/lib/api";
-import type { ExecutionJobSummary } from "@/lib/types";
+import { listAllExecutions } from "@/lib/api";
+import type { TestExecution } from "@/lib/types";
 
 /* ── Status config ── */
-type StatusKey = "queued" | "running" | "provisioning" | "passed" | "failed" | "cancelled" | "timed_out" | "infrastructure_error";
-
 const STATUS_CONFIG: Record<string, { tone: "green" | "rose" | "blue" | "slate" | "amber"; label: string }> = {
-  running:               { tone: "blue",  label: "Running" },
-  provisioning:          { tone: "blue",  label: "Provisioning" },
-  queued:                { tone: "slate", label: "Queued" },
-  passed:                { tone: "green", label: "Passed" },
-  failed:                { tone: "rose",  label: "Failed" },
-  cancelled:             { tone: "slate", label: "Cancelled" },
-  timed_out:             { tone: "amber", label: "Timed Out" },
-  infrastructure_error:  { tone: "rose",  label: "Error" },
+  running:     { tone: "blue",  label: "Running" },
+  in_progress: { tone: "blue",  label: "Running" },
+  pending:     { tone: "slate", label: "Pending" },
+  passed:      { tone: "green", label: "Passed" },
+  completed:   { tone: "green", label: "Passed" },
+  failed:      { tone: "rose",  label: "Failed" },
+  error:       { tone: "rose",  label: "Error" },
+  blocked:     { tone: "amber", label: "Blocked" },
+  skipped:     { tone: "slate", label: "Skipped" },
+  cancelled:   { tone: "slate", label: "Cancelled" },
 };
 
-const ACTIVE_STATUSES = new Set(["queued", "running", "provisioning"]);
-const HISTORY_STATUSES = new Set(["passed", "failed", "cancelled", "timed_out", "infrastructure_error"]);
+const ACTIVE_STATUSES = new Set(["pending", "running", "in_progress"]);
 
 /* ── Helpers ── */
 function formatDuration(seconds?: number | null): string {
@@ -57,19 +57,17 @@ function formatDate(iso?: string | null): string {
   }
 }
 
-/* ── JobCard ── */
-function JobCard({
-  job,
-  onCancel,
-  cancelling,
-}: {
-  job: ExecutionJobSummary;
-  onCancel?: (id: string) => void;
-  cancelling?: boolean;
-}) {
-  const cfg = STATUS_CONFIG[job.status] ?? { tone: "slate" as const, label: job.status };
-  const isActive = ACTIVE_STATUSES.has(job.status);
-  const date = job.started_at ?? job.queued_at ?? job.created_at;
+/* ── ExecutionCard ── */
+function ExecutionCard({ run }: { run: TestExecution }) {
+  const cfg = STATUS_CONFIG[run.status] ?? { tone: "slate" as const, label: run.status };
+  const isActive = ACTIVE_STATUSES.has(run.status);
+  const date = run.started_at ?? run.created_at;
+  const title = run.test_suite_name ?? `Suite ${run.test_suite_id.slice(0, 8)}`;
+
+  const summary = run.summary;
+  const passed = summary?.passed ?? 0;
+  const failed = summary?.failed ?? 0;
+  const total = summary?.total ?? summary?.total_cases;
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -77,24 +75,35 @@ function JobCard({
         <div className="flex items-start gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="text-xs font-mono text-slate-400">{job.id.slice(0, 8)}</span>
+              <span className="text-xs font-mono text-slate-400">{run.id.slice(0, 8)}</span>
               <Badge tone={cfg.tone}>{cfg.label}</Badge>
-              {job.browser && <Badge tone="slate" className="text-[10px]">{job.browser}</Badge>}
+              <Badge tone="slate" className="text-[10px] capitalize">{run.execution_type}</Badge>
+              {run.environment && (
+                <Badge tone="slate" className="text-[10px]">{run.environment}</Badge>
+              )}
             </div>
-            <p className="text-sm font-semibold text-slate-900 truncate">
-              Script: {job.script_id.slice(0, 16)}
-            </p>
+            <p className="text-sm font-semibold text-slate-900 truncate">{title}</p>
             <div className="mt-2 flex items-center gap-4 text-xs text-slate-500 flex-wrap">
-              <span className="flex items-center gap-1">
-                <User className="h-3 w-3" /> Automation
-              </span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" /> {formatDate(date)}
               </span>
-              {job.duration_seconds != null && (
+              {run.duration_seconds != null && (
                 <span className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> {formatDuration(job.duration_seconds)}
+                  <Clock className="h-3 w-3" /> {formatDuration(run.duration_seconds)}
                 </span>
+              )}
+              {summary && (
+                <>
+                  <span className="flex items-center gap-1 text-emerald-600">
+                    <CheckCircle2 className="h-3 w-3" /> {passed} passed
+                  </span>
+                  {failed > 0 && (
+                    <span className="flex items-center gap-1 text-rose-600">
+                      <AlertTriangle className="h-3 w-3" /> {failed} failed
+                    </span>
+                  )}
+                  {total != null && <span className="text-slate-400">of {total}</span>}
+                </>
               )}
             </div>
           </div>
@@ -106,16 +115,6 @@ function JobCard({
                 <span className="text-xs font-medium">Running</span>
               </div>
             )}
-            {isActive && onCancel && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={cancelling}
-                onClick={() => onCancel(job.id)}
-              >
-                {cancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Cancel"}
-              </Button>
-            )}
           </div>
         </div>
       </CardContent>
@@ -125,16 +124,15 @@ function JobCard({
 
 /* ── Page ── */
 export default function RunsPage() {
-  const [jobs, setJobs] = useState<ExecutionJobSummary[]>([]);
+  const [runs, setRuns] = useState<TestExecution[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const fetchJobs = useCallback(async () => {
+  const fetchRuns = useCallback(async () => {
     try {
-      const data = await listExecutionJobs({ limit: 50 });
-      setJobs(data);
+      const data = await listAllExecutions({ limit: 50 });
+      setRuns(data);
       setError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load runs.");
@@ -144,36 +142,24 @@ export default function RunsPage() {
   }, []);
 
   useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+    fetchRuns();
+  }, [fetchRuns]);
 
-  // Poll every 5 seconds when there are active jobs
+  // Poll every 5 seconds while there are active runs
   useEffect(() => {
-    const hasActive = jobs.some((j) => ACTIVE_STATUSES.has(j.status));
+    const hasActive = runs.some((r) => ACTIVE_STATUSES.has(r.status));
     if (!hasActive) return;
-    const timer = setInterval(fetchJobs, 5000);
+    const timer = setInterval(fetchRuns, 5000);
     return () => clearInterval(timer);
-  }, [jobs, fetchJobs]);
-
-  async function handleCancel(id: string) {
-    setCancellingId(id);
-    try {
-      await cancelExecutionJob(id);
-      await fetchJobs();
-    } catch {
-      // silently refresh
-    } finally {
-      setCancellingId(null);
-    }
-  }
+  }, [runs, fetchRuns]);
 
   // Client-side status filter
   const filtered = statusFilter === "all"
-    ? jobs
-    : jobs.filter((j) => j.status === statusFilter);
+    ? runs
+    : runs.filter((r) => r.status === statusFilter);
 
-  const activeJobs = filtered.filter((j) => ACTIVE_STATUSES.has(j.status));
-  const historyJobs = filtered.filter((j) => HISTORY_STATUSES.has(j.status));
+  const activeRuns = filtered.filter((r) => ACTIVE_STATUSES.has(r.status));
+  const historyRuns = filtered.filter((r) => !ACTIVE_STATUSES.has(r.status));
 
   return (
     <ProtectedRoute>
@@ -183,10 +169,10 @@ export default function RunsPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Runs</h1>
             <p className="text-slate-500 mt-1">
-              Monitor test execution runs across all workspaces.
+              Monitor test execution runs across all projects.
             </p>
           </div>
-          <Button variant="outline" onClick={() => fetchJobs()} disabled={loading}>
+          <Button variant="outline" onClick={() => fetchRuns()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -197,7 +183,7 @@ export default function RunsPage() {
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 flex items-center gap-3">
             <XCircle className="h-4 w-4 text-rose-500 shrink-0" />
             <p className="text-sm text-rose-700">{error}</p>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={fetchJobs}>Retry</Button>
+            <Button variant="outline" size="sm" className="ml-auto" onClick={fetchRuns}>Retry</Button>
           </div>
         )}
 
@@ -214,11 +200,11 @@ export default function RunsPage() {
           >
             <option value="all">All Statuses</option>
             <option value="running">Running</option>
-            <option value="queued">Queued</option>
+            <option value="pending">Pending</option>
             <option value="passed">Passed</option>
+            <option value="completed">Completed</option>
             <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="timed_out">Timed Out</option>
+            <option value="error">Error</option>
           </select>
         </div>
 
@@ -231,21 +217,21 @@ export default function RunsPage() {
 
         {/* Tabs */}
         {!loading && (
-          <Tabs defaultValue="active">
+          <Tabs defaultValue="history">
             <TabsList>
               <TabsTrigger value="active">
-                Active ({activeJobs.length})
+                Active ({activeRuns.length})
               </TabsTrigger>
               <TabsTrigger value="scheduled">
                 Scheduled (0)
               </TabsTrigger>
               <TabsTrigger value="history">
-                History ({historyJobs.length})
+                History ({historyRuns.length})
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="active" className="space-y-3 mt-4">
-              {activeJobs.length === 0 ? (
+              {activeRuns.length === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <PlayCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
@@ -253,14 +239,7 @@ export default function RunsPage() {
                   </CardContent>
                 </Card>
               ) : (
-                activeJobs.map((job) => (
-                  <JobCard
-                    key={job.id}
-                    job={job}
-                    onCancel={handleCancel}
-                    cancelling={cancellingId === job.id}
-                  />
-                ))
+                activeRuns.map((run) => <ExecutionCard key={run.id} run={run} />)
               )}
             </TabsContent>
 
@@ -277,7 +256,7 @@ export default function RunsPage() {
             </TabsContent>
 
             <TabsContent value="history" className="space-y-3 mt-4">
-              {historyJobs.length === 0 ? (
+              {historyRuns.length === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <Clock className="h-10 w-10 mx-auto mb-3 text-slate-300" />
@@ -285,7 +264,7 @@ export default function RunsPage() {
                   </CardContent>
                 </Card>
               ) : (
-                historyJobs.map((job) => <JobCard key={job.id} job={job} />)
+                historyRuns.map((run) => <ExecutionCard key={run.id} run={run} />)
               )}
             </TabsContent>
           </Tabs>

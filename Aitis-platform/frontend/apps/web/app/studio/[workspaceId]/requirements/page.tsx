@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Download, Search, FileText, ExternalLink, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+import { Plus, Download, Search, FileText, ExternalLink, Pencil, Trash2, AlertCircle, ArrowRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,21 +17,31 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { getStories, createStory, updateStory, deleteStory, importJiraIssue } from "@/lib/api";
-import type { SavedStory } from "@/lib/types";
+import {
+  getStories,
+  createStory,
+  updateStory,
+  deleteStory,
+  importJiraIssue,
+  getJiraIssue,
+  searchJiraIssues,
+} from "@/lib/api";
+import type { SavedStory, JiraIssue } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-const STATUS_TABS = ["All", "Draft", "Ready", "Analysis Complete", "Covered", "Blocked"] as const;
+// Backend RequirementStatus enum values → display metadata. "approved" === fully
+// analyzed (the gate for test-case generation).
+const STATUS_META: Record<string, { label: string; tone: "slate" | "amber" | "green" | "rose" }> = {
+  draft: { label: "Draft", tone: "slate" },
+  reviewed: { label: "In Review", tone: "amber" },
+  approved: { label: "Analyzed", tone: "green" },
+  deprecated: { label: "Deprecated", tone: "rose" },
+};
+const STATUS_TABS = ["All", "draft", "reviewed", "approved", "deprecated"] as const;
 type StatusTab = (typeof STATUS_TABS)[number];
 
-const STATUS_TONE: Record<string, "slate" | "blue" | "amber" | "green" | "rose"> = {
-  Draft: "slate",
-  Ready: "blue",
-  "Analysis Complete": "amber",
-  Covered: "green",
-  Blocked: "rose",
-};
+const normStatus = (s?: string | null) => (s ?? "draft").toLowerCase();
 
 const PRIORITY_OPTIONS = ["High", "Medium", "Low"] as const;
 const PRIORITY_TONE: Record<string, "rose" | "amber" | "blue"> = {
@@ -55,6 +67,8 @@ const EMPTY_FORM: StoryForm = {
 };
 
 export default function RequirementsPage() {
+  const params = useParams();
+  const workspaceId = params.workspaceId as string;
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -72,11 +86,17 @@ export default function RequirementsPage() {
 
   const [jiraOpen, setJiraOpen] = useState(false);
   const [jiraKey, setJiraKey] = useState("");
-  const [jiraLoading, setJiraLoading] = useState(false);
+  const [jiraJql, setJiraJql] = useState("issuetype = Story ORDER BY updated DESC");
+  const [jiraResults, setJiraResults] = useState<JiraIssue[]>([]);
+  const [jiraSearchLoading, setJiraSearchLoading] = useState(false);
+  const [jiraImportingKey, setJiraImportingKey] = useState<string | null>(null);
+  const [jiraNextPageToken, setJiraNextPageToken] = useState<string | null>(null);
   const [jiraError, setJiraError] = useState<string | null>(null);
+  const [importedCount, setImportedCount] = useState(0);
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [markingAnalyzedId, setMarkingAnalyzedId] = useState<number | null>(null);
 
   const fetchStories = useCallback(async () => {
     setLoading(true);
@@ -96,8 +116,7 @@ export default function RequirementsPage() {
   }, [fetchStories]);
 
   const filtered = stories.filter((s) => {
-    const storyStatus = s.status ?? "Draft";
-    const matchStatus = activeStatus === "All" || storyStatus === activeStatus;
+    const matchStatus = activeStatus === "All" || normStatus(s.status) === activeStatus;
     const q = search.toLowerCase();
     const matchSearch =
       s.title.toLowerCase().includes(q) ||
@@ -152,7 +171,7 @@ export default function RequirementsPage() {
         setStories((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
         toast({ title: "Requirement updated", variant: "success" });
       } else {
-        const created = await createStory(payload);
+        const created = await createStory(payload, workspaceId);
         setStories((prev) => [created, ...prev]);
         toast({ title: "Requirement added", variant: "success" });
       }
@@ -161,6 +180,20 @@ export default function RequirementsPage() {
       setFormError(err instanceof Error ? err.message : "Operation failed.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleMarkAnalyzed = async (id: number) => {
+    setMarkingAnalyzedId(id);
+    try {
+      const payload = { status: "approved" };
+      const updated = await updateStory(id, payload);
+      setStories((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      toast({ title: "Requirement marked as Analyzed", variant: "success" });
+    } catch {
+      toast({ title: "Failed to update requirement status", variant: "destructive" });
+    } finally {
+      setMarkingAnalyzedId(null);
     }
   };
 
@@ -178,34 +211,84 @@ export default function RequirementsPage() {
     }
   };
 
-  const handleJiraImport = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!jiraKey.trim()) return;
-    setJiraLoading(true);
+  const openJira = () => {
+    setJiraKey("");
+    setJiraResults([]);
+    setJiraNextPageToken(null);
+    setJiraError(null);
+    setJiraOpen(true);
+  };
+
+  const handleFetchJiraIssue = async () => {
+    if (!jiraKey.trim()) {
+      setJiraError("Enter a Jira issue key.");
+      return;
+    }
+    setJiraSearchLoading(true);
     setJiraError(null);
     try {
-      const created = await importJiraIssue(jiraKey.trim());
-      setStories((prev) => [created, ...prev]);
-      setJiraOpen(false);
-      setJiraKey("");
-      toast({ title: `Imported ${jiraKey.trim()}`, variant: "success" });
+      const issue = await getJiraIssue(jiraKey.trim());
+      setJiraResults([issue]);
+      setJiraNextPageToken(null);
+    } catch (err) {
+      setJiraError(err instanceof Error ? err.message : "Failed to fetch Jira issue.");
+    } finally {
+      setJiraSearchLoading(false);
+    }
+  };
+
+  const handleSearchJira = async (resetResults: boolean = true) => {
+    if (!jiraJql.trim()) {
+      setJiraError("Enter a JQL query.");
+      return;
+    }
+    setJiraSearchLoading(true);
+    setJiraError(null);
+    try {
+      const result = await searchJiraIssues(
+        jiraJql,
+        resetResults ? undefined : jiraNextPageToken ?? undefined,
+      );
+      setJiraResults((current) =>
+        resetResults ? result.issues ?? [] : [...current, ...(result.issues ?? [])],
+      );
+      setJiraNextPageToken(result.nextPageToken ?? null);
+    } catch (err) {
+      setJiraError(err instanceof Error ? err.message : "Failed to search Jira.");
+    } finally {
+      setJiraSearchLoading(false);
+    }
+  };
+
+  const handleImportIssue = async (issueKey: string) => {
+    setJiraImportingKey(issueKey);
+    setJiraError(null);
+    try {
+      const created = await importJiraIssue(issueKey, workspaceId);
+      setStories((prev) => {
+        const exists = prev.some((s) => s.id === created.id);
+        return exists ? prev.map((s) => (s.id === created.id ? created : s)) : [created, ...prev];
+      });
+      setImportedCount((c) => c + 1);
+      toast({ title: `Imported ${issueKey}`, variant: "success" });
     } catch (err) {
       setJiraError(err instanceof Error ? err.message : "Import failed.");
     } finally {
-      setJiraLoading(false);
+      setJiraImportingKey(null);
     }
   };
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">Requirements</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Requirements</h2>
+          <p className="text-sm text-slate-500">
+            Import user stories from Jira, then head to the Test Case Generator to create tests.
+          </p>
+        </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { setJiraKey(""); setJiraError(null); setJiraOpen(true); }}
-          >
+          <Button variant="outline" size="sm" onClick={openJira}>
             <Download className="h-4 w-4" />
             Import from Jira
           </Button>
@@ -215,6 +298,21 @@ export default function RequirementsPage() {
           </Button>
         </div>
       </div>
+
+      {importedCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-sm text-emerald-800">
+            <span className="font-semibold">{importedCount}</span> requirement
+            {importedCount > 1 ? "s" : ""} imported. Ready to generate test cases?
+          </p>
+          <Button size="sm" asChild>
+            <Link href={`/studio/${workspaceId}/test-cases`}>
+              Go to Test Case Generator
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      )}
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -238,7 +336,7 @@ export default function RequirementsPage() {
                 : "border-transparent text-slate-500 hover:text-slate-700",
             )}
           >
-            {status}
+            {status === "All" ? "All" : STATUS_META[status]?.label ?? status}
           </button>
         ))}
       </div>
@@ -282,10 +380,21 @@ export default function RequirementsPage() {
                     {story.priority && (
                       <Badge tone={PRIORITY_TONE[story.priority] ?? "slate"}>{story.priority}</Badge>
                     )}
-                    <Badge tone={STATUS_TONE[story.status ?? "Draft"] ?? "slate"}>
-                      {story.status ?? "Draft"}
+                    <Badge tone={STATUS_META[normStatus(story.status)]?.tone ?? "slate"}>
+                      {STATUS_META[normStatus(story.status)]?.label ?? story.status}
                     </Badge>
                     <span className="text-xs text-slate-400">Coverage: —</span>
+                    {normStatus(story.status) !== "approved" && deleteConfirmId !== story.id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={() => handleMarkAnalyzed(story.id)}
+                        disabled={markingAnalyzedId === story.id}
+                      >
+                        {markingAnalyzedId === story.id ? "Marking..." : "Mark Analyzed"}
+                      </Button>
+                    )}
                     {deleteConfirmId === story.id ? (
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-rose-600">Delete?</span>
@@ -403,32 +512,115 @@ export default function RequirementsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Jira Import Modal */}
+      {/* Jira Import Modal — fetch by key or search with JQL, then import */}
       <Dialog open={jiraOpen} onOpenChange={setJiraOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Import from Jira</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleJiraImport} className="space-y-4 pt-2">
+          <div className="space-y-5 pt-2">
+            {/* Fetch a single issue by key */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Jira Issue Key</label>
-              <Input
-                value={jiraKey}
-                onChange={(e) => setJiraKey(e.target.value)}
-                placeholder="e.g. AUTH-201"
-                required
-              />
+              <label className="text-sm font-medium text-slate-700">Fetch by issue key</label>
+              <div className="flex gap-2">
+                <Input
+                  value={jiraKey}
+                  onChange={(e) => setJiraKey(e.target.value)}
+                  placeholder="e.g. AUTH-201"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleFetchJiraIssue();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleFetchJiraIssue}
+                  disabled={jiraSearchLoading}
+                >
+                  Fetch
+                </Button>
+              </div>
             </div>
+
+            {/* Search with JQL */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">Search with JQL</label>
+              <Textarea
+                value={jiraJql}
+                onChange={(e) => setJiraJql(e.target.value)}
+                rows={2}
+                placeholder="issuetype = Story ORDER BY updated DESC"
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => handleSearchJira(true)}
+                  disabled={jiraSearchLoading}
+                >
+                  {jiraSearchLoading ? "Searching..." : "Search Jira"}
+                </Button>
+                {jiraNextPageToken && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleSearchJira(false)}
+                    disabled={jiraSearchLoading}
+                  >
+                    Load more
+                  </Button>
+                )}
+              </div>
+            </div>
+
             {jiraError && <p className="text-sm text-rose-600">{jiraError}</p>}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setJiraOpen(false)} disabled={jiraLoading}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={jiraLoading}>
-                {jiraLoading ? "Importing..." : "Import"}
-              </Button>
-            </DialogFooter>
-          </form>
+
+            {/* Results */}
+            <div className="max-h-72 space-y-3 overflow-y-auto">
+              {jiraResults.length === 0 ? (
+                <div className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">
+                  No results yet. Fetch by key or run a JQL search.
+                </div>
+              ) : (
+                jiraResults.map((issue) => (
+                  <div key={issue.key} className="rounded-lg border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="blue">{issue.key}</Badge>
+                      {issue.fields.issuetype?.name && (
+                        <Badge tone="green">{issue.fields.issuetype.name}</Badge>
+                      )}
+                      {issue.fields.status?.name && (
+                        <Badge tone="amber">{issue.fields.status.name}</Badge>
+                      )}
+                      {issue.fields.priority?.name && (
+                        <Badge tone="rose">{issue.fields.priority.name}</Badge>
+                      )}
+                    </div>
+                    <p className="mt-2 text-sm font-medium text-slate-900">
+                      {issue.fields.summary || "(No summary)"}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => handleImportIssue(issue.key)}
+                      disabled={jiraImportingKey === issue.key}
+                    >
+                      {jiraImportingKey === issue.key ? "Importing..." : "Import"}
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setJiraOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

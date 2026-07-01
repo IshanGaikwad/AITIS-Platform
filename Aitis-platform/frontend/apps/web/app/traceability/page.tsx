@@ -39,13 +39,13 @@ export default function TraceabilityPage() {
   const [search, setSearch] = useState("");
   const [showUncoveredOnly, setShowUncoveredOnly] = useState(false);
 
-  const projectId = user?.workspace_id || "";
+  const workspaceId = user?.project_id || "";
 
   useEffect(() => {
-    if (!isAuthenticated || !projectId) return;
+    if (!isAuthenticated || !workspaceId) return;
     Promise.all([
-      getTraceabilityMatrix(projectId),
-      getRequirementCoverage(projectId),
+      getTraceabilityMatrix(workspaceId),
+      getRequirementCoverage(workspaceId),
     ])
       .then(([mat, cov]) => {
         setMatrix(mat);
@@ -53,7 +53,7 @@ export default function TraceabilityPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [isAuthenticated, projectId]);
+  }, [isAuthenticated, workspaceId]);
 
   const filteredLinks = useMemo(() => {
     if (!matrix?.links) return [];

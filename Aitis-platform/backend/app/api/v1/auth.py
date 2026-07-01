@@ -1,4 +1,4 @@
-"""Auth API — OAuth2 login, callback, token refresh, workspace selection."""
+"""Auth API — OAuth2 login, callback, token refresh, project selection."""
 
 import secrets
 import uuid
@@ -13,11 +13,13 @@ from app.core.oauth2 import oauth2_provider
 from app.core.security import (
     get_current_user,
     verify_token,
+    _role_value,
 )
 from app.db.database import get_db
-from app.models.tenant import Organization, OrganizationMembership, Workspace, WorkspaceMembership
+from app.models.tenant import Organization, OrganizationMembership, Project, ProjectMembership
 from app.models.user import User
-from app.schemas.user import LoginResponse, Token, TokenData, UserOut, WorkspaceSelect
+from app.schemas.user import LoginResponse, Token, TokenData, UserOut, ProjectSelect
+from app.services import sso_service
 from app.services.auth_service import (
     create_tokens_for_user,
     get_or_create_user_from_oauth,
@@ -46,17 +48,25 @@ async def _get_token_payload(
 
 @router.post("/demo")
 async def demo_login(db: AsyncSession = Depends(get_db)):
-    """Login as demo user — creates a real session with full API access."""
+    """Login as a fresh, isolated demo user — a real session with full access.
+
+    Each demo entry provisions a brand-new user, organization, and project so the
+    experience always starts completely empty, with no data carried over from prior
+    demo sessions. Demo sessions are fully isolated from one another.
+    """
+    # Unique suffix makes every demo entry a distinct, empty account
+    unique = uuid.uuid4().hex[:12]
+
     user = await get_or_create_user_from_oauth(
         db=db,
         provider="demo",
-        provider_id="demo-user-001",
-        email="demo@aitis.io",
+        provider_id=f"demo-{unique}",
+        email=f"demo+{unique}@aitis.io",
         name="Demo User",
         picture="",
     )
 
-    # Find the user's organization (auto-created on first login)
+    # Personal organization is auto-created on first login
     membership_result = await db.execute(
         select(OrganizationMembership).where(OrganizationMembership.user_id == user.id)
     )
@@ -66,35 +76,13 @@ async def demo_login(db: AsyncSession = Depends(get_db)):
 
     org_id = membership.organization_id
 
-    # Get or create demo workspace
-    ws_result = await db.execute(
-        select(Workspace).where(Workspace.organization_id == org_id)
-    )
-    ws = ws_result.scalars().first()
-    if not ws:
-        ws = Workspace(
-            name="Demo Workspace",
-            slug="demo",
-            organization_id=org_id,
-            description="Default workspace for demo access",
-        )
-        db.add(ws)
-        await db.flush()
-
-        ws_member = WorkspaceMembership(
-            user_id=user.id,
-            workspace_id=ws.id,
-            role="administrator",
-        )
-        db.add(ws_member)
-        await db.commit()
-        await db.refresh(ws)
-
+    # No project is auto-created — the demo user starts with an empty organization
+    # and creates their own project from the switcher. The token therefore carries
+    # the org context (org_owner) but no project claim yet.
     tokens = await create_tokens_for_user(
         db, user,
         organization_id=org_id,
-        workspace_id=ws.id,
-        role="administrator",
+        role=_role_value(membership.role),
     )
     return {
         "access_token": tokens["access_token"],
@@ -104,10 +92,23 @@ async def demo_login(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/login")
-async def login(provider: str = "auth0"):
-    """Initiate OAuth2 login flow for the given provider."""
-    state = secrets.token_urlsafe(32)
-    auth_url = oauth2_provider.get_authorization_url(state)
+async def login(provider: Optional[str] = None):
+    """Initiate OAuth2 login flow for the given provider.
+
+    The provider is encoded into `state` (format ``provider:<name>:<nonce>``) so the
+    callback can recover which provider issued the code — and so the frontend can
+    parse it back after the redirect.
+    """
+    resolved = (provider or oauth2_provider.provider or "").lower()
+    if resolved == "sso":
+        # Organization SSO (SAML/OIDC/LDAP) is configured per-organization under the
+        # SSO admin subsystem, not via the global OAuth2 flow.
+        raise HTTPException(
+            status_code=400,
+            detail="Organization SSO must be configured by your administrator before use.",
+        )
+    state = f"provider:{resolved}:{secrets.token_urlsafe(24)}"
+    auth_url = oauth2_provider.get_authorization_url(state, resolved)
     return {"authorization_url": auth_url, "state": state}
 
 
@@ -124,17 +125,34 @@ async def oauth2_callback(
     code = payload.get("code")
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code")
+
+    # Resolve which provider issued this code: prefer the explicit field, then the
+    # provider encoded in state (provider:<name>:<nonce>), then the server default.
+    provider = payload.get("provider")
+    state = payload.get("state") or ""
+    if not provider and state.startswith("provider:"):
+        parts = state.split(":")
+        if len(parts) >= 2 and parts[1]:
+            provider = parts[1]
+    provider = (provider or oauth2_provider.provider or "").lower()
+
+    # Organization SSO (OIDC) follows a separate, DB-backed provider flow.
+    if provider == "sso":
+        user = await sso_service.complete_sso_callback(db, code, state)
+        tokens = await create_tokens_for_user(db, user)
+        return {**tokens, "user": UserOut.model_validate(user)}
+
     try:
-        token_data = await oauth2_provider.exchange_code_for_token(code)
+        token_data = await oauth2_provider.exchange_code_for_token(code, provider)
         access_token = token_data.get("access_token")
         if not access_token:
             raise HTTPException(status_code=400, detail="No access token received")
 
-        user_info = await oauth2_provider.get_user_info(access_token)
+        user_info = await oauth2_provider.get_user_info(access_token, provider)
 
         user = await get_or_create_user_from_oauth(
             db=db,
-            provider=oauth2_provider.provider,
+            provider=provider,
             provider_id=user_info.get("sub") or user_info.get("id"),
             email=user_info.get("email"),
             name=user_info.get("name"),
@@ -148,7 +166,7 @@ async def oauth2_callback(
             "user": UserOut.model_validate(user),
         }
 
-        if oauth2_provider.provider == "atlassian":
+        if provider == "atlassian":
             response_payload["atlassian_access_token"] = access_token
 
         return response_payload
@@ -191,51 +209,51 @@ async def refresh_access_token(
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
     org_id = payload.get("organization_id")
-    ws_id = payload.get("workspace_id")
+    ws_id = payload.get("project_id")
     role = payload.get("role")
 
     tokens = await create_tokens_for_user(
         db, user,
         organization_id=uuid.UUID(org_id) if org_id else None,
-        workspace_id=uuid.UUID(ws_id) if ws_id else None,
+        project_id=uuid.UUID(ws_id) if ws_id else None,
         role=role,
     )
     return Token(access_token=tokens["access_token"], refresh_token=credentials.credentials)
 
 
-@router.post("/select-workspace", response_model=LoginResponse)
-async def select_workspace(
-    payload: WorkspaceSelect,
+@router.post("/select-project", response_model=LoginResponse)
+async def select_project(
+    payload: ProjectSelect,
     current_user: Dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Select active workspace — reissues JWT with new workspace/role claims."""
+    """Select active project — reissues JWT with new project/role claims."""
     user_id = current_user.get("user_id")
 
     # Verify membership
     result = await db.execute(
-        select(WorkspaceMembership)
+        select(ProjectMembership)
         .where(
-            WorkspaceMembership.user_id == user_id,
-            WorkspaceMembership.workspace_id == payload.workspace_id,
+            ProjectMembership.user_id == user_id,
+            ProjectMembership.project_id == payload.project_id,
         )
     )
     membership = result.scalars().first()
     if not membership:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+        raise HTTPException(status_code=403, detail="Not a member of this project")
 
-    # Get workspace's org
-    ws_result = await db.execute(select(Workspace).where(Workspace.id == payload.workspace_id))
-    workspace = ws_result.scalars().first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    # Get project's org
+    ws_result = await db.execute(select(Project).where(Project.id == payload.project_id))
+    project = ws_result.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
     user = await get_user_by_id(db, user_id)
     tokens = await create_tokens_for_user(
         db, user,
-        organization_id=workspace.organization_id,
-        workspace_id=payload.workspace_id,
-        role=membership.role.value,
+        organization_id=project.organization_id,
+        project_id=payload.project_id,
+        role=_role_value(membership.role),
     )
     return LoginResponse(
         access_token=tokens["access_token"],

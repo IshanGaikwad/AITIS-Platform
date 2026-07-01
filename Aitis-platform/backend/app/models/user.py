@@ -4,7 +4,7 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import Boolean, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin, TimestampMixin
@@ -22,7 +22,7 @@ class User(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     memberships = relationship("OrganizationMembership", back_populates="user", lazy="selectin")
-    workspace_memberships = relationship("WorkspaceMembership", back_populates="user", lazy="selectin")
+    project_memberships = relationship("ProjectMembership", back_populates="user", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"

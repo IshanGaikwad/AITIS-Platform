@@ -27,32 +27,32 @@ router = APIRouter()
 
 @router.get("", response_model=List[TestSuiteOut])
 async def list_test_suites(
-    project_id: Optional[uuid.UUID] = Query(None),
+    workspace_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List test suites scoped to the current workspace."""
+    """List test suites scoped to the current project."""
     query = select(TestSuite)
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
     if org_id:
         query = query.where(TestSuite.organization_id == org_id)
     if ws_id:
-        query = query.where(TestSuite.workspace_id == ws_id)
-    if project_id:
-        query = query.where(TestSuite.project_id == project_id)
+        query = query.where(TestSuite.project_id == ws_id)
+    if workspace_id:
+        query = query.where(TestSuite.workspace_id == workspace_id)
     result = await db.execute(query)
     return result.scalars().all()
 
 
-@router.get("/coverage/{project_id}", response_model=RequirementCoverageReport)
+@router.get("/coverage/{workspace_id}", response_model=RequirementCoverageReport)
 async def get_requirement_coverage(
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get requirement coverage report for a project."""
-    return await manual_test_service.get_requirement_coverage(db, project_id)
+    """Get requirement coverage report for a workspace."""
+    return await manual_test_service.get_requirement_coverage(db, workspace_id)
 
 
 @router.get("/{suite_id}", response_model=TestSuiteOut)
@@ -77,17 +77,17 @@ async def create_test_suite(
     """Create a new test suite. Requires admin, QA lead, or automation engineer."""
     if not payload.organization_id:
         payload.organization_id = current_user.get("organization_id")
-    if not payload.workspace_id:
-        payload.workspace_id = current_user.get("workspace_id")
+    if not payload.project_id:
+        payload.project_id = current_user.get("project_id")
 
     suite = TestSuite(
         name=payload.name,
         description=payload.description,
         type=payload.type,
-        project_id=payload.project_id,
+        workspace_id=payload.workspace_id,
         requirement_id=payload.requirement_id,
         organization_id=payload.organization_id,
-        workspace_id=payload.workspace_id,
+        project_id=payload.project_id,
     )
     db.add(suite)
     await db.commit()
@@ -138,7 +138,8 @@ async def list_test_cases(
     current_user=Depends(get_current_user),
 ):
     """List all test cases in a suite."""
-    return await manual_test_service.list_test_cases(db, suite_id)
+    cases, _total = await manual_test_service.list_test_cases(db, suite_id)
+    return cases
 
 
 @router.post("/{suite_id}/cases", response_model=TestCaseDBOut,
@@ -152,10 +153,12 @@ async def create_test_case(
     """Create a new test case with initial versioning."""
     if not payload.organization_id:
         payload.organization_id = current_user.get("organization_id")
-    if not payload.workspace_id:
-        payload.workspace_id = current_user.get("workspace_id")
+    if not payload.project_id:
+        payload.project_id = current_user.get("project_id")
+    # The suite is taken from the path; keep payload consistent.
+    payload.test_suite_id = suite_id
 
-    return await manual_test_service.create_test_case(db, suite_id, payload)
+    return await manual_test_service.create_test_case(db, payload)
 
 
 @router.get("/{suite_id}/cases/{case_id}", response_model=TestCaseDBOut)

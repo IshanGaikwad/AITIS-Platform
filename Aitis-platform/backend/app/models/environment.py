@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlalchemy import String, Text, ForeignKey, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,11 +28,11 @@ class Environment(Base, UUIDMixin, TimestampMixin, TenantMixin):
     __tablename__ = "environments"
 
     # Foreign keys
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     application_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # Core fields
@@ -52,8 +52,8 @@ class Environment(Base, UUIDMixin, TimestampMixin, TenantMixin):
     health_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Relationships
-    project = relationship(
-        "Project",
+    workspace = relationship(
+        "Workspace",
         back_populates="environments",
         lazy="selectin"
     )

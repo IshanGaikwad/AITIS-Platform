@@ -1,5 +1,6 @@
 """Environment management API routes."""
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.models import EnvironmentType
 from app.services import EnvironmentService, PermissionService
-from app.core.security import get_current_user
+from app.core.security import claim_uuid, get_current_user, require_project_access
 from app.db.database import get_db
 
 router = APIRouter(prefix="/environments", tags=["environments"])
@@ -41,7 +42,7 @@ class EnvironmentOut(BaseModel):
     """Environment response."""
     id: UUID
     application_id: UUID
-    project_id: UUID
+    workspace_id: UUID
     name: str
     environment_type: EnvironmentType
     description: Optional[str]
@@ -49,8 +50,8 @@ class EnvironmentOut(BaseModel):
     environment_variables: Optional[list]
     health_check_url: Optional[str]
     health_check_enabled: bool
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -66,35 +67,27 @@ async def create_environment(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new environment for an application."""
-    # Check permissions (to the project that owns this application)
+    # Check permissions (to the workspace that owns this application)
     from app.services import ApplicationService as AppService
     app = await AppService.get_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
     )
     
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "create",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=app.project_id,
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to create environments in this project")
 
     env = await EnvironmentService.create_environment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
-        project_id=app.project_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
+        workspace_id=app.workspace_id,
         application_id=application_id,
         name=data.name,
         environment_type=data.environment_type,
@@ -121,31 +114,53 @@ async def list_application_environments(
     from app.services import ApplicationService as AppService
     app = await AppService.get_application(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
     )
     
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "read",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=app.project_id,
-    )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to view this application")
+    await require_project_access(db, current_user, claim_uuid(current_user, "project_id"))
 
     envs, total = await EnvironmentService.list_application_environments(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         application_id=application_id,
+        skip=skip,
+        limit=limit,
+    )
+
+    return {
+        "items": [EnvironmentOut.from_orm(env).model_dump() for env in envs],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.get("/workspaces/{workspace_id}/environments", response_model=dict)
+async def list_workspace_environments(
+    workspace_id: UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all environments across every application in a workspace.
+
+    Convenience endpoint so callers (e.g. the Execution target picker) don't have to
+    list applications first and then fan out to each one's environments.
+    """
+    await require_project_access(db, current_user, claim_uuid(current_user, "project_id"))
+
+    envs, total = await EnvironmentService.list_workspace_environments(
+        db,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
+        workspace_id=workspace_id,
         skip=skip,
         limit=limit,
     )
@@ -167,8 +182,8 @@ async def get_environment(
     """Get environment by ID."""
     env = await EnvironmentService.get_environment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         environment_id=environment_id,
     )
 
@@ -189,31 +204,22 @@ async def update_environment(
     # Get env first
     env = await EnvironmentService.get_environment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         environment_id=environment_id,
     )
 
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
 
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "update",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=env.project_id,
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to update this environment")
 
     updated_env = await EnvironmentService.update_environment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         environment_id=environment_id,
         name=data.name,
         environment_type=data.environment_type,
@@ -237,30 +243,21 @@ async def delete_environment(
     # Get env first
     env = await EnvironmentService.get_environment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         environment_id=environment_id,
     )
 
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
 
-    # Check permissions
-    has_perm = await PermissionService.check_permission(
-        db,
-        current_user.id,
-        "projects",
-        "delete",
-        current_user.organization_id,
-        current_user.workspace_id,
-        resource_id=env.project_id,
+    await require_project_access(
+        db, current_user, claim_uuid(current_user, "project_id"), ("administrator", "qa_lead")
     )
-    if not has_perm:
-        raise HTTPException(status_code=403, detail="No permission to delete this environment")
 
     await EnvironmentService.delete_environment(
         db,
-        organization_id=current_user.organization_id,
-        workspace_id=current_user.workspace_id,
+        organization_id=claim_uuid(current_user, "organization_id", "org_id"),
+        project_id=claim_uuid(current_user, "project_id"),
         environment_id=environment_id,
     )

@@ -19,12 +19,12 @@ router = APIRouter()
 
 @router.get("/tree", response_model=List[TestSuiteFolderOut])
 async def get_folder_tree(
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get the hierarchical folder tree for a project."""
-    return await manual_test_service.get_folder_tree(db, project_id)
+    """Get the hierarchical folder tree for a workspace."""
+    return await manual_test_service.get_folder_tree(db, workspace_id)
 
 @router.post("", response_model=TestSuiteFolderOut, status_code=status.HTTP_201_CREATED)
 async def create_folder(
@@ -34,8 +34,8 @@ async def create_folder(
 ):
     if not payload.organization_id:
         payload.organization_id = current_user.get("organization_id")
-    if not payload.workspace_id:
-        payload.workspace_id = current_user.get("workspace_id")
+    if not payload.project_id:
+        payload.project_id = current_user.get("project_id")
     
     return await manual_test_service.create_folder(db, payload)
 

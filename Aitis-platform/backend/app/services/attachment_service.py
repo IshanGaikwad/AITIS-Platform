@@ -62,7 +62,7 @@ class AttachmentService:
     async def upload_attachment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         requirement_id: UUID,
         file_content: bytes,
         original_filename: str,
@@ -99,11 +99,11 @@ class AttachmentService:
         # Type 'requirement_attachment' marks it as a requirement attachment
         artifact = ExecutionArtifact(
             organization_id=organization_id,
-            workspace_id=workspace_id,
+            project_id=project_id,
             artifact_type="requirement_attachment",
-            file_path=str(file_path),
-            file_size=len(file_content),
-            original_filename=original_filename,
+            storage_key=str(file_path),
+            size_bytes=len(file_content),
+            name=original_filename,
             metadata_={
                 "requirement_id": str(requirement_id),
                 "uploaded_by": str(uploaded_by_user_id),
@@ -119,7 +119,7 @@ class AttachmentService:
     async def get_attachment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         attachment_id: UUID,
     ) -> Optional[ExecutionArtifact]:
         """Retrieve attachment metadata."""
@@ -128,7 +128,7 @@ class AttachmentService:
                 and_(
                     ExecutionArtifact.id == attachment_id,
                     ExecutionArtifact.organization_id == organization_id,
-                    ExecutionArtifact.workspace_id == workspace_id,
+                    ExecutionArtifact.project_id == project_id,
                     ExecutionArtifact.artifact_type == "requirement_attachment",
                 )
             )
@@ -139,7 +139,7 @@ class AttachmentService:
     async def list_requirement_attachments(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         requirement_id: UUID,
     ) -> list[ExecutionArtifact]:
         """List all attachments for a requirement."""
@@ -147,9 +147,9 @@ class AttachmentService:
             select(ExecutionArtifact).where(
                 and_(
                     ExecutionArtifact.organization_id == organization_id,
-                    ExecutionArtifact.workspace_id == workspace_id,
+                    ExecutionArtifact.project_id == project_id,
                     ExecutionArtifact.artifact_type == "requirement_attachment",
-                    ExecutionArtifact.metadata_["requirement_id"].astext == str(requirement_id),
+                    ExecutionArtifact.metadata_["requirement_id"].as_string() == str(requirement_id),
                 )
             )
         )
@@ -159,7 +159,7 @@ class AttachmentService:
     async def download_attachment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         attachment_id: UUID,
     ) -> Optional[Tuple[bytes, str]]:
         """
@@ -167,16 +167,16 @@ class AttachmentService:
         Returns (file_content, original_filename) or None if not found.
         """
         artifact = await AttachmentService.get_attachment(
-            db, organization_id, workspace_id, attachment_id
+            db, organization_id, project_id, attachment_id
         )
         if not artifact:
             return None
 
         # Read file from disk
         try:
-            with open(artifact.file_path, 'rb') as f:
+            with open(artifact.storage_key, 'rb') as f:
                 content = f.read()
-            return content, artifact.original_filename
+            return content, artifact.name
         except Exception:
             return None
 
@@ -184,19 +184,19 @@ class AttachmentService:
     async def delete_attachment(
         db: AsyncSession,
         organization_id: UUID,
-        workspace_id: UUID,
+        project_id: UUID,
         attachment_id: UUID,
     ) -> bool:
         """Delete an attachment (file and record)."""
         artifact = await AttachmentService.get_attachment(
-            db, organization_id, workspace_id, attachment_id
+            db, organization_id, project_id, attachment_id
         )
         if not artifact:
             return False
 
         # Delete file from disk
         try:
-            Path(artifact.file_path).unlink(missing_ok=True)
+            Path(artifact.storage_key).unlink(missing_ok=True)
         except Exception:
             pass
 

@@ -113,11 +113,11 @@ async def list_scripts(
 ):
     """List automation scripts for the current tenant."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     stmt = select(AutomationScript).where(
         AutomationScript.organization_id == org_id,
-        AutomationScript.workspace_id == ws_id,
+        AutomationScript.project_id == ws_id,
     )
     if framework:
         stmt = stmt.where(AutomationScript.framework == framework)
@@ -138,7 +138,7 @@ async def create_script(
 ):
     """Create a new automation script."""
     org_id = payload.organization_id or current_user.get("organization_id")
-    ws_id = payload.workspace_id or current_user.get("workspace_id")
+    ws_id = payload.project_id or current_user.get("project_id")
 
     script = AutomationScript(
         name=payload.name,
@@ -148,8 +148,9 @@ async def create_script(
         code=payload.code,
         file_path=payload.file_path,
         version=payload.version,
+        test_case_id=payload.test_case_id,
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(script)
     await db.commit()
@@ -178,16 +179,16 @@ async def get_script(
         raise HTTPException(status_code=404, detail="Automation script not found")
     if not verify_tenant_access(
         script.organization_id,
-        script.workspace_id,
+        script.project_id,
         current_user.get("organization_id") or current_user.get("org_id"),
-        current_user.get("workspace_id"),
+        current_user.get("project_id"),
     ):
         raise HTTPException(status_code=403, detail="Automation script access denied")
 
     # ── Security: verify tenant access ──
     verify_tenant_access(
-        script.organization_id, script.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        script.organization_id, script.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     )
     return script
 
@@ -208,8 +209,8 @@ async def update_script(
 
     # ── Security: verify tenant access ──
     verify_tenant_access(
-        script.organization_id, script.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        script.organization_id, script.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     )
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -236,8 +237,8 @@ async def delete_script(
 
     # ── Security: verify tenant access ──
     verify_tenant_access(
-        script.organization_id, script.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        script.organization_id, script.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     )
 
     await db.delete(script)
@@ -302,7 +303,7 @@ async def create_script_version(
         change_summary=payload.change_summary,
         code_hash=code_hash,
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
     )
     db.add(version)
 
@@ -320,7 +321,7 @@ async def create_script_version(
         script_id=script_id,
         script_version_id=version.id,
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
         actor_id=current_user.get("id") if isinstance(current_user, dict) else None,
         actor_type="user",
         details={"version_number": max_ver + 1, "change_summary": payload.change_summary},
@@ -410,7 +411,7 @@ async def approve_script_version(
         script_id=script_id,
         script_version_id=version_id,
         organization_id=script.organization_id if script else None,
-        workspace_id=script.workspace_id if script else None,
+        project_id=script.project_id if script else None,
         actor_id=current_user.get("id") if isinstance(current_user, dict) else None,
         actor_type="user",
         details={"version_number": version.version},
@@ -462,7 +463,7 @@ async def restore_script_version(
         change_summary=f"Restored from version {version.version}",
         code_hash=compute_code_hash(version.code),
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
     )
     db.add(new_version)
 
@@ -480,7 +481,7 @@ async def restore_script_version(
         script_id=script_id,
         script_version_id=version_id,
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
         actor_id=current_user.get("id") if isinstance(current_user, dict) else None,
         actor_type="user",
         details={"restored_from_version": version.version, "new_version": max_ver + 1},
@@ -565,7 +566,7 @@ async def submit_execution_job(
         queued_at=datetime.now(timezone.utc),
         triggered_by=current_user.get("id") if isinstance(current_user, dict) else None,
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
     )
     db.add(job)
     await db.commit()
@@ -580,7 +581,7 @@ async def submit_execution_job(
             script_id=script.id,
             script_version_id=version_id,
             organization_id=script.organization_id,
-            workspace_id=script.workspace_id,
+            project_id=script.project_id,
             metadata={
                 "browser": payload.browser,
                 "headless": payload.headless,
@@ -602,7 +603,7 @@ async def submit_execution_job(
             job_id=job.id,
             token_type="job_submit",
             organization_id=script.organization_id,
-            workspace_id=script.workspace_id,
+            project_id=script.project_id,
         )
     except Exception:
         exec_token = None  # Non-fatal — token is optional convenience
@@ -614,7 +615,7 @@ async def submit_execution_job(
         script_id=script.id,
         script_version_id=version_id,
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
         actor_id=current_user.get("id") if isinstance(current_user, dict) else None,
         actor_type="user",
         details={"browser": payload.browser, "base_url": base_url},
@@ -638,11 +639,11 @@ async def list_execution_jobs(
 ):
     """List execution jobs for the current tenant."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     stmt = select(ExecutionJob).where(
         ExecutionJob.organization_id == org_id,
-        ExecutionJob.workspace_id == ws_id,
+        ExecutionJob.project_id == ws_id,
     )
     if script_id:
         stmt = stmt.where(ExecutionJob.script_id == script_id)
@@ -670,8 +671,8 @@ async def get_execution_job(
 
     # ── Security: verify tenant access ──
     if not verify_tenant_access(
-        job.organization_id, job.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        job.organization_id, job.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     ):
         raise HTTPException(status_code=403, detail="Execution job access denied")
     return job
@@ -691,8 +692,8 @@ async def cancel_execution_job(
     if not job:
         raise HTTPException(status_code=404, detail="Execution job not found")
     if not verify_tenant_access(
-        job.organization_id, job.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        job.organization_id, job.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     ):
         raise HTTPException(status_code=403, detail="Execution job access denied")
 
@@ -728,7 +729,7 @@ async def cancel_execution_job(
         job_id=job.id,
         script_id=job.script_id,
         organization_id=job.organization_id,
-        workspace_id=job.workspace_id,
+        project_id=job.project_id,
         actor_id=current_user.get("id") if isinstance(current_user, dict) else None,
         actor_type="user",
         details={"previous_status": job.status},
@@ -763,8 +764,8 @@ async def get_execution_result(
 
     # ── Security: verify tenant access ──
     verify_tenant_access(
-        exec_result.organization_id, exec_result.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        exec_result.organization_id, exec_result.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     )
 
     # Attach artifact links
@@ -830,8 +831,8 @@ async def get_suite_summary(
         raise HTTPException(status_code=404, detail="Execution job not found")
 
     verify_tenant_access(
-        job.organization_id, job.workspace_id,
-        current_user.get("organization_id"), current_user.get("workspace_id"),
+        job.organization_id, job.project_id,
+        current_user.get("organization_id"), current_user.get("project_id"),
     )
 
     # Load all results for this job
@@ -915,7 +916,7 @@ async def list_recording_sessions(
 ):
     """List all recording sessions with summary metadata."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     stmt = (
         select(
@@ -924,12 +925,12 @@ async def list_recording_sessions(
             func.count(RecordedAction.id).label("action_count"),
             func.min(RecordedAction.action_type).label("first_action_type"),
             func.max(RecordedAction.action_type).label("last_action_type"),
-            func.bool_or(RecordedAction.is_sensitive).label("has_sensitive_actions"),
+            func.max(RecordedAction.is_sensitive).label("has_sensitive_actions"),
             func.min(RecordedAction.created_at).label("created_at"),
         )
         .where(
             RecordedAction.organization_id == org_id,
-            RecordedAction.workspace_id == ws_id,
+            RecordedAction.project_id == ws_id,
         )
         .group_by(RecordedAction.session_id, RecordedAction.script_id)
         .order_by(RecordedAction.session_id)
@@ -965,7 +966,7 @@ async def submit_recorded_actions_batch(
     converted to Playwright, Selenium, or Cypress code.
     """
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     # Validate action types
     invalid_types = set()
@@ -1013,7 +1014,7 @@ async def submit_recorded_actions_batch(
             expected_value=action_in.expected_value,
             metadata_=action_in.metadata,
             organization_id=org_id,
-            workspace_id=ws_id,
+            project_id=ws_id,
         )
         db.add(action)
         actions.append(action)
@@ -1154,7 +1155,7 @@ async def generate_from_recording(
         change_summary=f"Generated from recording session {session_id}",
         code_hash=spec.get("code_hash"),
         organization_id=script.organization_id,
-        workspace_id=script.workspace_id,
+        project_id=script.project_id,
     )
     db.add(new_version)
     script.version = max_ver + 1
@@ -1175,11 +1176,11 @@ async def list_framework_configs(
 ):
     """List framework configurations for the current tenant."""
     org_id = current_user.get("organization_id")
-    ws_id = current_user.get("workspace_id")
+    ws_id = current_user.get("project_id")
 
     stmt = select(FrameworkConfiguration).where(
         FrameworkConfiguration.organization_id == org_id,
-        FrameworkConfiguration.workspace_id == ws_id,
+        FrameworkConfiguration.project_id == ws_id,
     ).order_by(FrameworkConfiguration.name)
     result = await db.execute(stmt)
     return result.scalars().all()
@@ -1193,7 +1194,7 @@ async def create_framework_config(
 ):
     """Create a new framework configuration."""
     org_id = payload.organization_id or current_user.get("organization_id")
-    ws_id = payload.workspace_id or current_user.get("workspace_id")
+    ws_id = payload.project_id or current_user.get("project_id")
 
     config = FrameworkConfiguration(
         name=payload.name,
@@ -1202,7 +1203,7 @@ async def create_framework_config(
         base_url=payload.base_url,
         is_active=payload.is_active,
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(config)
     await db.commit()
@@ -1237,7 +1238,7 @@ async def create_page_object(
 ):
     """Create a new page object."""
     org_id = payload.organization_id or current_user.get("organization_id")
-    ws_id = payload.workspace_id or current_user.get("workspace_id")
+    ws_id = payload.project_id or current_user.get("project_id")
 
     po = PageObject(
         framework_config_id=payload.framework_config_id,
@@ -1246,7 +1247,7 @@ async def create_page_object(
         url_pattern=payload.url_pattern,
         code=payload.code,
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(po)
     await db.commit()
@@ -1281,7 +1282,7 @@ async def create_locator(
 ):
     """Create a new locator."""
     org_id = payload.organization_id or current_user.get("organization_id")
-    ws_id = payload.workspace_id or current_user.get("workspace_id")
+    ws_id = payload.project_id or current_user.get("project_id")
 
     loc = Locator(
         page_object_id=payload.page_object_id,
@@ -1290,7 +1291,7 @@ async def create_locator(
         value=payload.value,
         is_dynamic=payload.is_dynamic,
         organization_id=org_id,
-        workspace_id=ws_id,
+        project_id=ws_id,
     )
     db.add(loc)
     await db.commit()
@@ -1366,9 +1367,9 @@ async def execution_job_ws(websocket: WebSocket, job_id: str, token: Optional[st
                 return
             if not verify_tenant_access(
                 job.organization_id,
-                job.workspace_id,
+                job.project_id,
                 payload.get("organization_id") or payload.get("org_id"),
-                payload.get("workspace_id"),
+                payload.get("project_id"),
             ):
                 await websocket.send_json({"type": "error", "data": {"message": "Access denied"}})
                 await websocket.close()
@@ -1470,7 +1471,7 @@ async def query_audit_log(
             "script_id": str(e.script_id) if e.script_id else None,
             "script_version_id": str(e.script_version_id) if e.script_version_id else None,
             "organization_id": str(e.organization_id) if e.organization_id else None,
-            "workspace_id": str(e.workspace_id) if e.workspace_id else None,
+            "project_id": str(e.project_id) if e.project_id else None,
             "actor_id": str(e.actor_id) if e.actor_id else None,
             "actor_type": e.actor_type,
             "details": e.details,

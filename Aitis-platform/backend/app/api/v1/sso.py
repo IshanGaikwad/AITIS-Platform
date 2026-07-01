@@ -4,8 +4,8 @@ Phase 9: Provides endpoints for configuring and managing enterprise
 single sign-on providers including SAML 2.0, OpenID Connect, and LDAP.
 """
 
+import secrets
 import uuid
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,8 +15,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, require_role
 from app.db.database import get_db
+from app.models.system import SSOProvider as SSOProviderModel
+from app.services import sso_service
 
 router = APIRouter()
+
+
+def _provider_to_out(p: SSOProviderModel) -> "SSOProviderOut":
+    return SSOProviderOut(
+        id=str(p.id),
+        name=p.name,
+        provider_type=p.provider_type,
+        is_enabled=p.is_enabled,
+        is_default=p.is_default,
+        domain_whitelist=list(p.domain_whitelist or []),
+        auto_provision=p.auto_provision,
+        created_at=p.created_at.isoformat() if p.created_at else "",
+        updated_at=p.updated_at.isoformat() if p.updated_at else "",
+    )
 
 
 # ── Pydantic schemas ─────────────────────────────────────────────────
@@ -124,6 +140,18 @@ class SSOTestResult(BaseModel):
 # Endpoints
 # ══════════════════════════════════════════════════════════════════════
 
+async def _get_owned_provider(db: AsyncSession, provider_id: str, org_id) -> SSOProviderModel:
+    """Load a provider and verify it belongs to the caller's organization."""
+    try:
+        pid = uuid.UUID(provider_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid provider id")
+    provider = await db.get(SSOProviderModel, pid)
+    if not provider or (org_id and str(provider.organization_id) != str(org_id)):
+        raise HTTPException(status_code=404, detail="SSO provider not found")
+    return provider
+
+
 @router.get("/providers", response_model=List[SSOProviderOut])
 async def list_sso_providers(
     db: AsyncSession = Depends(get_db),
@@ -131,10 +159,12 @@ async def list_sso_providers(
 ):
     """List all SSO providers for the organization."""
     org_id = current_user.get("organization_id")
-
-    # For now, return in-memory config (can be moved to DB model)
-    # In production, this would query an SSOProvider model
-    return []
+    result = await db.execute(
+        select(SSOProviderModel)
+        .where(SSOProviderModel.organization_id == org_id)
+        .order_by(SSOProviderModel.created_at.desc())
+    )
+    return [_provider_to_out(p) for p in result.scalars().all()]
 
 
 @router.post("/providers", response_model=SSOProviderOut, status_code=status.HTTP_201_CREATED)
@@ -145,6 +175,8 @@ async def create_sso_provider(
 ):
     """Configure a new SSO provider."""
     org_id = current_user.get("organization_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="No organization context")
 
     # Validate provider type
     valid_types = {"saml", "oidc", "ldap", "azure_ad", "google_workspace"}
@@ -162,21 +194,31 @@ async def create_sso_provider(
     elif payload.provider_type == "ldap":
         _validate_ldap_config(payload.config)
 
-    # In production, store to DB
-    provider_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    # A new default unsets any existing default for this org.
+    if payload.is_default:
+        existing = await db.execute(
+            select(SSOProviderModel).where(
+                SSOProviderModel.organization_id == org_id,
+                SSOProviderModel.is_default.is_(True),
+            )
+        )
+        for other in existing.scalars().all():
+            other.is_default = False
 
-    return SSOProviderOut(
-        id=provider_id,
+    provider = SSOProviderModel(
+        organization_id=uuid.UUID(str(org_id)),
         name=payload.name,
         provider_type=payload.provider_type,
         is_enabled=payload.is_enabled,
         is_default=payload.is_default,
+        config=payload.config,
         domain_whitelist=payload.domain_whitelist,
         auto_provision=payload.auto_provision,
-        created_at=now,
-        updated_at=now,
     )
+    db.add(provider)
+    await db.commit()
+    await db.refresh(provider)
+    return _provider_to_out(provider)
 
 
 @router.put("/providers/{provider_id}", response_model=SSOProviderOut)
@@ -187,8 +229,26 @@ async def update_sso_provider(
     current_user=Depends(require_role("administrator")),
 ):
     """Update an SSO provider configuration."""
-    # In production, update DB record
-    raise HTTPException(status_code=501, detail="Update not yet implemented — coming soon")
+    org_id = current_user.get("organization_id")
+    provider = await _get_owned_provider(db, provider_id, org_id)
+
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("is_default"):
+        existing = await db.execute(
+            select(SSOProviderModel).where(
+                SSOProviderModel.organization_id == provider.organization_id,
+                SSOProviderModel.is_default.is_(True),
+                SSOProviderModel.id != provider.id,
+            )
+        )
+        for other in existing.scalars().all():
+            other.is_default = False
+
+    for key, val in data.items():
+        setattr(provider, key, val)
+    await db.commit()
+    await db.refresh(provider)
+    return _provider_to_out(provider)
 
 
 @router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -198,8 +258,55 @@ async def delete_sso_provider(
     current_user=Depends(require_role("administrator")),
 ):
     """Remove an SSO provider configuration."""
-    # In production, soft-delete DB record
-    raise HTTPException(status_code=501, detail="Delete not yet implemented — coming soon")
+    org_id = current_user.get("organization_id")
+    provider = await _get_owned_provider(db, provider_id, org_id)
+    await db.delete(provider)
+    await db.commit()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Org-SSO initiation (public — the user is not yet authenticated)
+# ══════════════════════════════════════════════════════════════════════
+
+class SSOInitiateRequest(BaseModel):
+    email: str = Field(..., description="Work email used to discover the org's SSO provider")
+
+
+class SSOInitiateResponse(BaseModel):
+    authorization_url: str
+    state: str
+    provider_name: str
+
+
+@router.post("/initiate", response_model=SSOInitiateResponse)
+async def initiate_sso(
+    payload: SSOInitiateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Discover the SSO provider for an email domain and return its authorization URL.
+
+    Public endpoint: the user has not logged in yet. The browser is then redirected
+    to the returned ``authorization_url``; the IdP returns to ``/auth/callback``.
+    """
+    provider = await sso_service.find_provider_for_email(db, payload.email)
+    if not provider:
+        raise HTTPException(
+            status_code=404,
+            detail="No organization SSO is configured for this email domain.",
+        )
+    if provider.provider_type not in sso_service.OIDC_FAMILY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{provider.provider_type}' SSO cannot be initiated from the browser.",
+        )
+
+    state = sso_service.make_state(provider, secrets.token_urlsafe(24))
+    authorization_url = await sso_service.build_authorization_url(provider, state)
+    return SSOInitiateResponse(
+        authorization_url=authorization_url,
+        state=state,
+        provider_name=provider.name,
+    )
 
 
 @router.post("/providers/{provider_id}/test", response_model=SSOTestResult)
@@ -267,7 +374,7 @@ async def get_oidc_config_template(
         "providers": {
             "google": {
                 "issuer_url": "https://accounts.google.com",
-                "description": "Google Workspace / G Suite",
+                "description": "Google Project / G Suite",
             },
             "azure_ad": {
                 "issuer_url": "https://login.microsoftonline.com/{tenant_id}/v2.0",

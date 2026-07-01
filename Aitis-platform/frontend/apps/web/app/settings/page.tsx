@@ -8,14 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
-import { getOrganizations, createOrganization, getWorkspaces, createWorkspace } from "@/lib/api";
-import type { Organization, Workspace } from "@/lib/types";
+import { getOrganizations, createOrganization, getProjects, createProject } from "@/lib/api";
+import type { Organization, Project } from "@/lib/types";
 import { Building2, Users, Plus, Settings, Globe, Hash } from "lucide-react";
 
 export default function SettingsPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Create org form
@@ -23,7 +23,7 @@ export default function SettingsPage() {
   const [orgSlug, setOrgSlug] = useState("");
   const [creatingOrg, setCreatingOrg] = useState(false);
 
-  // Create workspace form
+  // Create project form
   const [wsName, setWsName] = useState("");
   const [wsSlug, setWsSlug] = useState("");
   const [wsOrgId, setWsOrgId] = useState("");
@@ -36,12 +36,12 @@ export default function SettingsPage() {
         setOrganizations(orgs);
         if (orgs.length > 0) {
           setWsOrgId(orgs[0].id);
-          return getWorkspaces(orgs[0].id);
+          return getProjects(orgs[0].id);
         }
-        return [] as Workspace[];
+        return [] as Project[];
       })
       .then((wss) => {
-        setWorkspaces(wss);
+        setProjects(wss);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -66,8 +66,8 @@ export default function SettingsPage() {
     if (!wsName.trim() || !wsOrgId) return;
     setCreatingWs(true);
     try {
-      const ws = await createWorkspace(wsOrgId, { name: wsName, slug: wsSlug || wsName.toLowerCase().replace(/\s+/g, "-") });
-      setWorkspaces([...workspaces, ws]);
+      const ws = await createProject(wsOrgId, { name: wsName, slug: wsSlug || wsName.toLowerCase().replace(/\s+/g, "-") });
+      setProjects([...projects, ws]);
       setWsName("");
       setWsSlug("");
     } catch (err) {
@@ -85,7 +85,7 @@ export default function SettingsPage() {
           <CardContent className="pt-8 pb-8">
             <Settings className="h-12 w-12 text-slate-300 mx-auto mb-4" />
             <h2 className="text-lg font-semibold text-slate-900">Sign in to manage settings</h2>
-            <p className="text-sm text-slate-500 mt-1">Connect your account to configure your workspace.</p>
+            <p className="text-sm text-slate-500 mt-1">Connect your account to configure your project.</p>
           </CardContent>
         </Card>
       </div>
@@ -104,7 +104,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-slate-500 mt-1">Manage your organizations, workspaces, and account settings.</p>
+        <p className="text-slate-500 mt-1">Manage your organizations, projects, and account settings.</p>
       </div>
 
       <Tabs defaultValue="organizations">
@@ -113,9 +113,9 @@ export default function SettingsPage() {
             <Building2 className="h-4 w-4 mr-2" />
             Organizations
           </TabsTrigger>
-          <TabsTrigger value="workspaces">
+          <TabsTrigger value="projects">
             <Users className="h-4 w-4 mr-2" />
-            Workspaces
+            Projects
           </TabsTrigger>
           <TabsTrigger value="account">
             <Settings className="h-4 w-4 mr-2" />
@@ -127,7 +127,7 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Create Organization</CardTitle>
-              <CardDescription>Organizations group workspaces and users together.</CardDescription>
+              <CardDescription>Organizations group projects and users together.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2">
@@ -190,11 +190,11 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="workspaces" className="mt-4 space-y-6">
+        <TabsContent value="projects" className="mt-4 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Create Workspace</CardTitle>
-              <CardDescription>Workspaces contain projects, requirements, and tests.</CardDescription>
+              <CardTitle>Create Project</CardTitle>
+              <CardDescription>Projects contain workspaces, requirements, and tests.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2">
@@ -214,7 +214,7 @@ export default function SettingsPage() {
                 <Label htmlFor="wsName">Name</Label>
                 <Input
                   id="wsName"
-                  placeholder="My Workspace"
+                  placeholder="My Project"
                   value={wsName}
                   onChange={(e) => setWsName(e.target.value)}
                 />
@@ -223,20 +223,20 @@ export default function SettingsPage() {
                 <Label htmlFor="wsSlug">Slug (optional)</Label>
                 <Input
                   id="wsSlug"
-                  placeholder="my-workspace"
+                  placeholder="my-project"
                   value={wsSlug}
                   onChange={(e) => setWsSlug(e.target.value)}
                 />
               </div>
               <Button onClick={handleCreateWs} disabled={creatingWs || !wsName.trim() || !wsOrgId}>
                 <Plus className="h-4 w-4 mr-2" />
-                {creatingWs ? "Creating..." : "Create Workspace"}
+                {creatingWs ? "Creating..." : "Create Project"}
               </Button>
             </CardContent>
           </Card>
 
           <div className="grid gap-4">
-            {workspaces.map((ws) => (
+            {projects.map((ws) => (
               <Card key={ws.id}>
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between">
@@ -259,11 +259,11 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             ))}
-            {workspaces.length === 0 && (
+            {projects.length === 0 && (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <Globe className="h-10 w-10 text-slate-300 mb-3" />
-                  <p className="text-sm text-slate-500">No workspaces yet. Create one above.</p>
+                  <p className="text-sm text-slate-500">No projects yet. Create one above.</p>
                 </CardContent>
               </Card>
             )}
@@ -298,8 +298,8 @@ export default function SettingsPage() {
                 <p className="text-sm text-slate-500 font-mono">{user?.organization_id || "—"}</p>
               </div>
               <div className="grid gap-2">
-                <Label>Workspace ID</Label>
-                <p className="text-sm text-slate-500 font-mono">{user?.workspace_id || "—"}</p>
+                <Label>Project ID</Label>
+                <p className="text-sm text-slate-500 font-mono">{user?.project_id || "—"}</p>
               </div>
             </CardContent>
           </Card>

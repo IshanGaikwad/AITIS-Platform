@@ -1,14 +1,14 @@
 "use client";
 
-import { ProjectsList } from "@/components/projects-list";
+import { WorkspacesList } from "@/components/workspaces-list";
 import { useAuth } from "@/lib/auth";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function ProjectsPage() {
+export default function WorkspacesPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
-  const [workspaceId, setWorkspaceId] = useState<string>("");
+  const [projectId, setProjectId] = useState<string>("");
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -16,10 +16,10 @@ export default function ProjectsPage() {
       return;
     }
 
-    // Get workspace ID from user context or local storage
-    const ws = user?.workspace_id || localStorage.getItem("workspace_id");
+    // Get project ID from user context or local storage
+    const ws = user?.project_id || localStorage.getItem("project_id");
     if (ws) {
-      setWorkspaceId(ws);
+      setProjectId(ws);
     }
   }, [user, isLoading, router]);
 
@@ -41,7 +41,7 @@ export default function ProjectsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-6xl mx-auto px-6 py-8">
-        {workspaceId && <ProjectsList workspaceId={workspaceId} />}
+        {projectId && <WorkspacesList projectId={projectId} />}
       </div>
     </div>
   );

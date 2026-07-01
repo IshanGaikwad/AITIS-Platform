@@ -403,7 +403,7 @@ def convert_to_appium(
 
     for line in lines:
         stripped = line.strip()
-        if not stripped or stripped.start("//") or stripped.start("#"):
+        if not stripped or stripped.startswith("//") or stripped.startswith("#"):
             continue
 
         # Skip import lines

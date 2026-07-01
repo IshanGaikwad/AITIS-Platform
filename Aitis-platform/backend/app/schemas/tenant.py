@@ -1,4 +1,4 @@
-"""Pydantic schemas for Organization, Workspace, and Membership entities."""
+"""Pydantic schemas for Organization, Project, and Membership entities."""
 
 import uuid
 from datetime import datetime
@@ -58,8 +58,8 @@ class OrganizationMembershipOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ── Workspace ──────────────────────────────────────────────────────
-class WorkspaceCreate(BaseModel):
+# ── Project ──────────────────────────────────────────────────────
+class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     slug: str = Field(..., min_length=1, max_length=60, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     organization_id: uuid.UUID
@@ -67,14 +67,14 @@ class WorkspaceCreate(BaseModel):
     settings: Optional[dict] = None
 
 
-class WorkspaceUpdate(BaseModel):
+class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=120)
     slug: Optional[str] = Field(None, min_length=1, max_length=60, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     description: Optional[str] = None
     settings: Optional[dict] = None
 
 
-class WorkspaceOut(BaseModel):
+class ProjectOut(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
@@ -87,16 +87,16 @@ class WorkspaceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ── Workspace Membership ───────────────────────────────────────────
-class WorkspaceMembershipCreate(BaseModel):
+# ── Project Membership ───────────────────────────────────────────
+class ProjectMembershipCreate(BaseModel):
     user_id: uuid.UUID
     role: str = Field(..., description="One of: org_owner, administrator, qa_lead, automation_engineer, manual_tester, developer, viewer")
 
 
-class WorkspaceMembershipOut(BaseModel):
+class ProjectMembershipOut(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
-    workspace_id: uuid.UUID
+    project_id: uuid.UUID
     role: str
     created_at: datetime
 

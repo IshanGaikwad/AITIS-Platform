@@ -7,13 +7,13 @@ from typing import Optional, List
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.requirement import RequirementCreate
-from app.schemas.testcase import TestCaseOut
+from app.schemas.testcase import TestCasePipelineOut
 
 
 # ── AI Pipeline schemas (generation output) ─────────────────────────
 class AutomationRequest(BaseModel):
     story: RequirementCreate
-    test_case: TestCaseOut
+    test_case: TestCasePipelineOut
 
 
 class AutomationOut(BaseModel):
@@ -34,8 +34,9 @@ class AutomationScriptCreate(BaseModel):
     code: str = ""
     file_path: Optional[str] = None
     version: int = 1
+    test_case_id: Optional[uuid.UUID] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class AutomationScriptUpdate(BaseModel):
@@ -60,7 +61,7 @@ class AutomationScriptOut(BaseModel):
     is_healed: bool = False
     healing_proposal_id: Optional[uuid.UUID] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -75,7 +76,7 @@ class FrameworkConfigurationCreate(BaseModel):
     base_url: Optional[str] = None
     is_active: bool = True
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class FrameworkConfigurationOut(BaseModel):
@@ -86,7 +87,7 @@ class FrameworkConfigurationOut(BaseModel):
     base_url: Optional[str] = None
     is_active: bool = True
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -101,7 +102,7 @@ class PageObjectCreate(BaseModel):
     url_pattern: Optional[str] = None
     code: str = ""
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class PageObjectOut(BaseModel):
@@ -112,7 +113,7 @@ class PageObjectOut(BaseModel):
     url_pattern: Optional[str] = None
     code: str
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -127,7 +128,7 @@ class LocatorCreate(BaseModel):
     value: str
     is_dynamic: bool = False
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
 
 
 class LocatorUpdate(BaseModel):
@@ -148,7 +149,7 @@ class LocatorOut(BaseModel):
     original_value: Optional[str] = None
     confidence_score: Optional[float] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -178,7 +179,7 @@ class ScriptVersionOut(BaseModel):
     change_summary: Optional[str] = None
     code_hash: Optional[str] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -246,7 +247,7 @@ class ExecutionJobOut(BaseModel):
     error_message: Optional[str] = None
     stack_trace: Optional[str] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -285,7 +286,7 @@ class ExecutionResultOut(BaseModel):
     stderr: Optional[str] = None
     result_json: Optional[dict] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -374,7 +375,7 @@ class RecordedActionOut(BaseModel):
     expected_value: Optional[str] = None
     metadata: Optional[dict] = None
     organization_id: Optional[uuid.UUID] = None
-    workspace_id: Optional[uuid.UUID] = None
+    project_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

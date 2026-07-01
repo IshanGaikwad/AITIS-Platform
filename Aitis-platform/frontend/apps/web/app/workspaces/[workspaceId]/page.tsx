@@ -10,10 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApplicationsList } from "@/components/applications-list";
 import { EnvironmentsList } from "@/components/environments-list";
 import { ArrowLeft, Settings, Users, FileText } from "lucide-react";
-import { getProjectStats } from "@/lib/api";
-import type { ProjectStats } from "@/lib/types";
+import { getWorkspaceStats } from "@/lib/api";
+import type { WorkspaceStats } from "@/lib/types";
 
-interface Project {
+interface Workspace {
   id: string;
   name: string;
   key: string;
@@ -22,43 +22,45 @@ interface Project {
   owner_id?: string;
   tags?: string[];
   created_at: string;
-  workspace_id: string;
+  project_id: string;
   organization_id: string;
   applications?: any[];
   environments?: any[];
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+// Client-side: use a relative base so Next.js rewrites proxy /api/* to the backend
+// (avoids CORS and keeps the port in next.config.mjs as the single source of truth).
+const API_BASE = "/api";
 
-async function fetchProject(projectId: string): Promise<Project> {
-  const response = await fetch(`${API_BASE}/projects/${projectId}`, {
+async function fetchWorkspace(workspaceId: string): Promise<Workspace> {
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}`, {
     headers: {
       Authorization: `Bearer ${localStorage.getItem("aitis_access_token")}`,
     },
   });
-  if (!response.ok) throw new Error("Failed to fetch project");
+  if (!response.ok) throw new Error("Failed to fetch workspace");
   return response.json();
 }
 
-export default function ProjectDetailPage({
+export default function WorkspaceDetailPage({
   params,
 }: {
-  params: Promise<{ projectId: string }>;
+  params: Promise<{ workspaceId: string }>;
 }) {
-  const { projectId } = use(params);
+  const { workspaceId } = use(params);
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Fetch project
-  const { data: project, isLoading, isError } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => fetchProject(projectId),
+  // Fetch workspace
+  const { data: workspace, isLoading, isError } = useQuery({
+    queryKey: ["workspace", workspaceId],
+    queryFn: () => fetchWorkspace(workspaceId),
   });
 
-  // Fetch project stats
+  // Fetch workspace stats
   const { data: stats } = useQuery({
-    queryKey: ["project-stats", projectId],
-    queryFn: () => getProjectStats(projectId),
-    enabled: !!projectId,
+    queryKey: ["workspace-stats", workspaceId],
+    queryFn: () => getWorkspaceStats(workspaceId),
+    enabled: !!workspaceId,
   });
 
   if (isLoading) {
@@ -66,20 +68,20 @@ export default function ProjectDetailPage({
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
           <div className="h-8 w-8 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Loading project...</p>
+          <p className="text-slate-600">Loading workspace...</p>
         </div>
       </div>
     );
   }
 
-  if (isError || !project) {
+  if (isError || !workspace) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-red-600 mb-4">Failed to load project</p>
-            <Link href="/projects">
-              <Button>Back to Projects</Button>
+            <p className="text-red-600 mb-4">Failed to load workspace</p>
+            <Link href="/workspaces">
+              <Button>Back to Workspaces</Button>
             </Link>
           </CardContent>
         </Card>
@@ -93,7 +95,7 @@ export default function ProjectDetailPage({
       <div className="border-b bg-white">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center gap-4 mb-4">
-            <Link href="/projects">
+            <Link href="/workspaces">
               <Button variant="ghost" size="sm" className="gap-1">
                 <ArrowLeft className="h-4 w-4" />
                 Back
@@ -102,19 +104,19 @@ export default function ProjectDetailPage({
           </div>
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-3xl font-bold">{project.name}</h1>
+              <h1 className="text-3xl font-bold">{workspace.name}</h1>
               <p className="text-slate-600 mt-1 flex items-center gap-2">
-                <code className="bg-slate-100 px-2 py-1 rounded text-sm">{project.key}</code>
-                <Badge tone={project.status === "active" ? "green" : "slate"}>
-                  {project.status}
+                <code className="bg-slate-100 px-2 py-1 rounded text-sm">{workspace.key}</code>
+                <Badge tone={workspace.status === "active" ? "green" : "slate"}>
+                  {workspace.status}
                 </Badge>
               </p>
-              {project.description && (
-                <p className="text-slate-600 mt-3 max-w-2xl">{project.description}</p>
+              {workspace.description && (
+                <p className="text-slate-600 mt-3 max-w-2xl">{workspace.description}</p>
               )}
-              {project.tags && project.tags.length > 0 && (
+              {workspace.tags && workspace.tags.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-3">
-                  {project.tags.map((tag) => (
+                  {workspace.tags.map((tag) => (
                     <Badge key={tag} tone="slate">
                       {tag}
                     </Badge>
@@ -144,27 +146,27 @@ export default function ProjectDetailPage({
           <TabsContent value="overview" className="space-y-6 mt-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Project Information</CardTitle>
+                <CardTitle className="text-lg">Workspace Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
                     <p className="text-xs font-medium text-slate-600">Key</p>
-                    <p className="font-mono text-sm mt-1">{project.key}</p>
+                    <p className="font-mono text-sm mt-1">{workspace.key}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-slate-600">Status</p>
-                    <p className="text-sm mt-1 capitalize">{project.status}</p>
+                    <p className="text-sm mt-1 capitalize">{workspace.status}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-slate-600">Created</p>
                     <p className="text-sm mt-1">
-                      {new Date(project.created_at).toLocaleDateString()}
+                      {new Date(workspace.created_at).toLocaleDateString()}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-slate-600">Applications</p>
-                    <p className="text-sm mt-1">{project.applications?.length || 0}</p>
+                    <p className="text-sm mt-1">{workspace.applications?.length || 0}</p>
                   </div>
                 </div>
               </CardContent>
@@ -174,10 +176,10 @@ export default function ProjectDetailPage({
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Applications</CardTitle>
-                  <CardDescription>Deployment targets for this project</CardDescription>
+                  <CardDescription>Deployment targets for this workspace</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ApplicationsList projectId={projectId} />
+                  <ApplicationsList workspaceId={workspaceId} />
                 </CardContent>
               </Card>
 
@@ -209,7 +211,7 @@ export default function ProjectDetailPage({
               <CardHeader>
                 <CardTitle>Requirements</CardTitle>
                 <CardDescription>
-                  Manage requirements and specifications for this project
+                  Manage requirements and specifications for this workspace
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -228,7 +230,7 @@ export default function ProjectDetailPage({
             <Card>
               <CardHeader>
                 <CardTitle>Team Members</CardTitle>
-                <CardDescription>Manage who has access to this project</CardDescription>
+                <CardDescription>Manage who has access to this workspace</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-center py-12">
@@ -245,31 +247,31 @@ export default function ProjectDetailPage({
           <TabsContent value="settings" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>Project Settings</CardTitle>
-                <CardDescription>Configure project details and preferences</CardDescription>
+                <CardTitle>Workspace Settings</CardTitle>
+                <CardDescription>Configure workspace details and preferences</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Project Name</label>
-                    <p className="text-sm text-slate-600 mt-1">{project.name}</p>
+                    <label className="text-sm font-medium text-slate-700">Workspace Name</label>
+                    <p className="text-sm text-slate-600 mt-1">{workspace.name}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Project Key</label>
-                    <p className="text-sm text-slate-600 mt-1 font-mono">{project.key}</p>
+                    <label className="text-sm font-medium text-slate-700">Workspace Key</label>
+                    <p className="text-sm text-slate-600 mt-1 font-mono">{workspace.key}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-slate-700">Status</label>
                     <p className="text-sm mt-1">
-                      <Badge tone={project.status === "active" ? "green" : "slate"}>
-                        {project.status}
+                      <Badge tone={workspace.status === "active" ? "green" : "slate"}>
+                        {workspace.status}
                       </Badge>
                     </p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-slate-700">Created</label>
                     <p className="text-sm text-slate-600 mt-1">
-                      {new Date(project.created_at).toLocaleDateString()}
+                      {new Date(workspace.created_at).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
