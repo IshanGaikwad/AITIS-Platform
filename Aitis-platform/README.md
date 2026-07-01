@@ -59,6 +59,40 @@ make dev-backend
 make dev-frontend
 ```
 
+### 💻 Run locally after a `git pull` (macOS / Linux — no Docker)
+
+`.venv/` and `node_modules/` are not committed, so after cloning or pulling you
+install once, then launch. Run all commands from the `Aitis-platform/` folder.
+
+**Prerequisites:** Python 3.11+, Node.js 20+, and `make` (`xcode-select --install` on macOS).
+
+```bash
+# 1. One-time install (also re-run when dependencies change)
+make install          # creates backend/.venv + installs requirements.txt, then npm install
+
+# 2. Start both servers with the launcher (backend :8001, frontend :3000)
+chmod +x launch.sh    # first time only
+./launch.sh           # Ctrl-C stops both
+```
+
+`launch.sh` wires the frontend to the backend (writes `.env.local`), frees busy
+ports, clears the Next.js cache, and opens the browser. Then visit
+**http://localhost:3000** (API docs at **http://localhost:8001/docs**).
+
+> **No `make`?** Equivalent manual steps:
+> ```bash
+> cd backend && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && cd ..
+> cd frontend/apps/web && npm install && cd ../../..
+> ./launch.sh
+> ```
+
+**Notes**
+- No database or Redis setup needed for local dev — the backend uses SQLite
+  (tables auto-create on startup) and treats Redis as optional (`/health` reports
+  `degraded` without it, which is fine).
+- Use the built-in **demo login** (`POST /api/auth/demo`) — no account required.
+- The Studio workspace pages live under `/studio/[workspaceId]/…`.
+
 ## 🌐 Access Points
 
 | Service | URL | Purpose |
