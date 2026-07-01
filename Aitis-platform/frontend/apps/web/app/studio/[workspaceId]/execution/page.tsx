@@ -30,7 +30,7 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 export default function ExecutionPage() {
   const params = useParams();
   const router = useRouter();
-  const workspaceId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
   const { toast } = useToast();
 
   const [suites, setSuites] = useState<TestSuite[]>([]);

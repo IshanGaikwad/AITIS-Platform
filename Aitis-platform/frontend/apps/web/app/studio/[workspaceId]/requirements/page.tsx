@@ -68,7 +68,7 @@ const EMPTY_FORM: StoryForm = {
 
 export default function RequirementsPage() {
   const params = useParams();
-  const projectId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -171,7 +171,7 @@ export default function RequirementsPage() {
         setStories((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
         toast({ title: "Requirement updated", variant: "success" });
       } else {
-        const created = await createStory(payload, projectId);
+        const created = await createStory(payload, workspaceId);
         setStories((prev) => [created, ...prev]);
         toast({ title: "Requirement added", variant: "success" });
       }
@@ -264,7 +264,7 @@ export default function RequirementsPage() {
     setJiraImportingKey(issueKey);
     setJiraError(null);
     try {
-      const created = await importJiraIssue(issueKey, projectId);
+      const created = await importJiraIssue(issueKey, workspaceId);
       setStories((prev) => {
         const exists = prev.some((s) => s.id === created.id);
         return exists ? prev.map((s) => (s.id === created.id ? created : s)) : [created, ...prev];
@@ -306,7 +306,7 @@ export default function RequirementsPage() {
             {importedCount > 1 ? "s" : ""} imported. Ready to generate test cases?
           </p>
           <Button size="sm" asChild>
-            <Link href={`/studio/${projectId}/test-cases`}>
+            <Link href={`/studio/${workspaceId}/test-cases`}>
               Go to Test Case Generator
               <ArrowRight className="ml-1 h-4 w-4" />
             </Link>

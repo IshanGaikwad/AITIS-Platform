@@ -54,7 +54,7 @@ export function Breadcrumb({ items, className }: BreadcrumbProps) {
   );
 }
 
-/** Sub-page labels for routes under /studio/[projectId]/ */
+/** Sub-page labels for routes under /studio/[workspaceId]/ */
 const studioSubPages: Record<string, string> = {
   requirements: "Requirements",
   "test-cases": "Test Case Generator",
@@ -69,7 +69,7 @@ const studioSubPages: Record<string, string> = {
 /**
  * Build breadcrumb items from the current pathname.
  * Maps known routes to human-readable labels via routeLabels.
- * Handles dynamic segments for /studio/[projectId]/... and /runs/[runId].
+ * Handles dynamic segments for /studio/[workspaceId]/... and /runs/[runId].
  */
 export function buildBreadcrumbsFromPath(pathname: string): BreadcrumbItem[] {
   const items: BreadcrumbItem[] = [{ label: "Home", href: "/dashboard" }];
@@ -81,15 +81,15 @@ export function buildBreadcrumbsFromPath(pathname: string): BreadcrumbItem[] {
 
   const segments = pathname.split("/").filter(Boolean);
 
-  // Handle /studio/[projectId]/... dynamic segments
+  // Handle /studio/[workspaceId]/... dynamic segments
   if (segments[0] === "studio" && segments.length > 1) {
     items.push({ label: "Studio", href: "/studio" });
-    const projectId = segments[1];
+    const workspaceId = segments[1];
 
     if (segments.length === 2) {
       items.push({ label: "Workspace" });
     } else {
-      items.push({ label: "Workspace", href: `/studio/${projectId}` });
+      items.push({ label: "Workspace", href: `/studio/${workspaceId}` });
       const subPage = segments[2];
       const subPageLabel = studioSubPages[subPage] ?? decodeURIComponent(subPage);
       items.push({ label: subPageLabel });

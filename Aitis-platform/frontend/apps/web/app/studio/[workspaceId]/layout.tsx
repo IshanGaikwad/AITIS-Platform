@@ -28,8 +28,8 @@ const CLIP_LAST = `polygon(0 0, 100% 0, 100% 100%, 0 100%, ${POINT}px 50%)`;
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
   const pathname = usePathname();
-  const projectId = params.projectId as string;
-  const baseHref = `/studio/${projectId}`;
+  const workspaceId = params.workspaceId as string;
+  const baseHref = `/studio/${workspaceId}`;
 
   const activeIndex = projectNavItems.findIndex((item) => {
     const href = `${baseHref}${item.href}`;

@@ -16,44 +16,44 @@ import { Button } from "@/components/ui/button";
 export default function ProjectOverviewPage() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
 
   const quickActions = [
     {
       label: "Import Jira Story",
       description: "Fetch a story by key and generate test artifacts",
       icon: FileText,
-      onClick: () => router.push(`/studio/${projectId}/requirements`),
+      onClick: () => router.push(`/studio/${workspaceId}/requirements`),
     },
     {
       label: "Add Requirement",
       description: "Manually add a requirement or user story",
       icon: Plus,
-      onClick: () => router.push(`/studio/${projectId}/requirements`),
+      onClick: () => router.push(`/studio/${workspaceId}/requirements`),
     },
     {
       label: "Create Test Suite",
       description: "Organise test cases into a suite",
       icon: Layers,
-      onClick: () => router.push(`/studio/${projectId}/test-suites`),
+      onClick: () => router.push(`/studio/${workspaceId}/test-suites`),
     },
     {
       label: "Add Test Case",
       description: "Write a new test case manually",
       icon: FlaskConical,
-      onClick: () => router.push(`/studio/${projectId}/test-cases`),
+      onClick: () => router.push(`/studio/${workspaceId}/test-cases`),
     },
     {
       label: "Generate Test Cases",
       description: "Use AI to generate cases from requirements",
       icon: Zap,
-      onClick: () => router.push(`/studio/${projectId}/test-cases`),
+      onClick: () => router.push(`/studio/${workspaceId}/test-cases`),
     },
     {
       label: "Start Test Run",
       description: "Run a test suite and track results",
       icon: Play,
-      onClick: () => router.push(`/studio/${projectId}/execution`),
+      onClick: () => router.push(`/studio/${workspaceId}/execution`),
     },
   ];
 
@@ -98,10 +98,10 @@ export default function ProjectOverviewPage() {
       {/* Navigation shortcuts */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: "Requirements", href: `/studio/${projectId}/requirements`, icon: FileText },
-          { label: "Test Cases", href: `/studio/${projectId}/test-cases`, icon: FlaskConical },
-          { label: "Test Suites", href: `/studio/${projectId}/test-suites`, icon: Layers },
-          { label: "Execution", href: `/studio/${projectId}/execution`, icon: Play },
+          { label: "Requirements", href: `/studio/${workspaceId}/requirements`, icon: FileText },
+          { label: "Test Cases", href: `/studio/${workspaceId}/test-cases`, icon: FlaskConical },
+          { label: "Test Suites", href: `/studio/${workspaceId}/test-suites`, icon: Layers },
+          { label: "Execution", href: `/studio/${workspaceId}/execution`, icon: Play },
         ].map((item) => (
           <Button
             key={item.label}

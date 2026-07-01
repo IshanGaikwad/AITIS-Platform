@@ -40,7 +40,7 @@ function hostnameFromUrl(url: string): string {
 
 export default function TargetPage() {
   const params = useParams();
-  const workspaceId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
   const { toast } = useToast();
 
   const [applications, setApplications] = useState<Application[]>([]);

@@ -103,7 +103,7 @@ function scaffoldFiles(framework: Framework, specName: string): GenFile[] {
 export default function AutomationPage() {
   const params = useParams();
   const router = useRouter();
-  const workspaceId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
   const { toast } = useToast();
 
   const [cases, setCases] = useState<TestCaseDB[]>([]);

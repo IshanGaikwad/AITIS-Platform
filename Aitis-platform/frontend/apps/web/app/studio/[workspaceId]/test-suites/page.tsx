@@ -42,7 +42,7 @@ const EMPTY_FORM: SuiteForm = { name: "", type: "smoke", description: "" };
 export default function TestSuitesPage() {
   const params = useParams();
   const router = useRouter();
-  const workspaceId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
   const { user } = useAuth();
   const { toast } = useToast();
 

@@ -11,11 +11,11 @@ import { useParams, useRouter } from "next/navigation";
 export default function TestGeneratorRedirect() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.projectId as string;
+  const workspaceId = params.workspaceId as string;
 
   useEffect(() => {
-    router.replace(`/studio/${projectId}/test-cases`);
-  }, [projectId, router]);
+    router.replace(`/studio/${workspaceId}/test-cases`);
+  }, [workspaceId, router]);
 
   return null;
 }
