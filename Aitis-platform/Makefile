@@ -1,4 +1,12 @@
-.PHONY: help install build up down logs clean
+.PHONY: help install build up down logs clean dev-backend dev-frontend test-backend status
+
+# Cross-platform venv python (Windows uses .venv/Scripts, Unix uses .venv/bin).
+# Paths are relative to backend/ since each recipe cds there first.
+ifeq ($(OS),Windows_NT)
+VENV_PY := .venv/Scripts/python
+else
+VENV_PY := .venv/bin/python
+endif
 
 help:
 	@echo "AITIS Platform - Available Commands"
@@ -17,7 +25,7 @@ help:
 
 install:
 	@echo "Installing backend dependencies..."
-	cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+	cd backend && python -m venv .venv && $(VENV_PY) -m pip install --upgrade pip && $(VENV_PY) -m pip install -r requirements.txt
 	@echo "Installing frontend dependencies..."
 	cd frontend/apps/web && npm install
 
@@ -52,13 +60,13 @@ clean:
 	@echo "Cleaned!"
 
 dev-backend:
-	cd backend && . .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+	cd backend && $(VENV_PY) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 
 dev-frontend:
 	cd frontend/apps/web && npm run dev
 
 test-backend:
-	cd backend && . .venv/bin/activate && pytest
+	cd backend && $(VENV_PY) -m pytest
 
 status:
 	docker-compose ps
