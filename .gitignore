@@ -1,0 +1,4 @@
+# Repo-root ignores (Aitis-platform/ has its own .gitignore)
+
+# Local vector store
+ruvector.db

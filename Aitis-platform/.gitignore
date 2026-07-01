@@ -44,6 +44,7 @@ yarn-error.log*
 out/
 .nuxt/
 dist/
+*.tsbuildinfo
 
 # IDE
 .vscode/
