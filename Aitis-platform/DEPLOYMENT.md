@@ -29,6 +29,11 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> `requirements.txt` covers local SQLite development (no C-extension DB drivers,
+> so it installs cleanly without a compiler). To run the backend against
+> **PostgreSQL** (Docker Compose does this automatically), install the Postgres
+> drivers too: `pip install -r requirements-postgres.txt`.
+
 ### 3. Frontend Setup (Local Development)
 ```bash
 cd frontend/apps/web

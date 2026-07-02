@@ -1,0 +1,15 @@
+# PostgreSQL production dependencies.
+#
+# The base requirements.txt targets local SQLite dev and stays free of native
+# C-extension database drivers (which lack prebuilt wheels on newer Python and
+# fail to compile without a toolchain). Install this file when running against
+# PostgreSQL (Docker Compose, staging, production):
+#
+#     pip install -r requirements-postgres.txt
+#
+# It pulls in everything from requirements.txt plus the Postgres drivers.
+
+-r requirements.txt
+
+asyncpg>=0.29.0          # async driver used by the app runtime engine
+psycopg2-binary>=2.9.9   # sync driver used by Alembic migrations

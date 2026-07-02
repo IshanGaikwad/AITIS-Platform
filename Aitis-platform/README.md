@@ -64,7 +64,9 @@ make dev-frontend
 `.venv/` and `node_modules/` are not committed, so after cloning or pulling you
 install once, then launch. Run all commands from the `Aitis-platform/` folder.
 
-**Prerequisites:** Python 3.11+, Node.js 20+, and `make` (`xcode-select --install` on macOS).
+**Prerequisites:** Python **3.11 or 3.12** (avoid 3.13/3.14 — some native
+dependencies don't yet ship prebuilt wheels and will fail to compile), Node.js
+20+, and `make` (`xcode-select --install` on macOS).
 
 ```bash
 # 1. One-time install (also re-run when dependencies change)
@@ -167,8 +169,13 @@ DATABASE_URL=sqlite:///./app.db
 
 ### Frontend Environment Variables
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+# The Next.js dev server proxies /api/* to this backend origin (see next.config.mjs).
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8001
 ```
+
+> `launch.sh` writes this automatically. The backend also requires `SECRET_KEY`
+> to start — `launch.sh` and `make dev-backend` set a dev value for you; set a
+> real one via the environment in production.
 
 ## 📦 Backend Stack
 - **FastAPI** - Modern async web framework

@@ -59,8 +59,10 @@ clean:
 	docker-compose down -v
 	@echo "Cleaned!"
 
+# SECRET_KEY is required by the backend (app/core/config.py). Supply a dev value
+# for local runs; production must override with a real secret via the environment.
 dev-backend:
-	cd backend && $(VENV_PY) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+	cd backend && APP_ENV=development SECRET_KEY=$${SECRET_KEY:-dev-only-insecure-secret-change-in-production} $(VENV_PY) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 
 dev-frontend:
 	cd frontend/apps/web && npm run dev

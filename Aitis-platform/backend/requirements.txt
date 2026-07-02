@@ -3,13 +3,14 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 
-# Database — async (SQLite dev / PostgreSQL prod)
+# Database — async (SQLite for local dev; tables auto-create on startup)
+# PostgreSQL drivers (asyncpg, psycopg2-binary) live in requirements-postgres.txt
+# so local installs don't need a C compiler / prebuilt wheels for them. Install
+# them for Docker/production Postgres: pip install -r requirements-postgres.txt
 sqlalchemy[asyncio]>=2.0.30
 aiosqlite>=0.20.0
-asyncpg>=0.29.0
-psycopg2-binary>=2.9.9
 alembic>=1.13.0
-greenlet>=3.0.0
+greenlet>=3.0.0  # required by SQLAlchemy async (incl. aiosqlite)
 
 # Redis
 redis>=5.0.0
