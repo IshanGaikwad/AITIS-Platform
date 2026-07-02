@@ -11,6 +11,12 @@ set -euo pipefail
 BACKEND_PORT=8001
 FRONTEND_PORT=3000
 
+# Backend refuses to start without SECRET_KEY (see app/core/config.py). Provide a
+# dev-only value for local runs; production MUST override via a real environment
+# variable / secret. Never use this placeholder outside local development.
+export APP_ENV="${APP_ENV:-development}"
+export SECRET_KEY="${SECRET_KEY:-dev-only-insecure-secret-change-in-production}"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend/apps/web"
